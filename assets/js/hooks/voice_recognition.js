@@ -174,7 +174,10 @@ const VoiceRecognition = {
 
   reportSpeechUnavailable(reason) {
     console.warn(`Cannot read alerts aloud: ${reason}`);
-    this.pushEvent("speech_unavailable", { reason: reason });
+    this.pushEvent("device_warning", {
+      key: "speech",
+      message: `can't read alerts aloud: ${reason}`,
+    });
   },
 
   mute() {

@@ -27,6 +27,7 @@ defmodule TaskmasterWeb.ConnCase do
       # Import conveniences for testing with connections
       import Plug.Conn
       import Phoenix.ConnTest
+      import Phoenix.LiveViewTest
       import TaskmasterWeb.ConnCase
     end
   end
@@ -34,5 +35,38 @@ defmodule TaskmasterWeb.ConnCase do
   setup tags do
     Taskmaster.DataCase.setup_sandbox(tags)
     {:ok, conn: Phoenix.ConnTest.build_conn()}
+  end
+
+  @doc """
+  Orders a mounted LiveView's shutdown with respect to the SQL sandbox.
+
+  `live/2` links the view to the test process, so the view dies at the very
+  moment the test ends — and a message still in its mailbox can then run a write
+  while the *next* test has already taken over the connection. SQLite allows one
+  writer, so that surfaces as an intermittent "Database busy" in an unrelated
+  test.
+
+  Unlinking and stopping the view explicitly makes the ordering deterministic:
+  this `on_exit` is registered after the sandbox's, so LIFO runs it first and
+  the view is gone before the owner is released.
+
+      {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
+  """
+  def isolate_view(view) do
+    Process.unlink(view.pid)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      if Process.alive?(view.pid) do
+        # Synchronous: returns only once the view has actually terminated.
+        try do
+          GenServer.stop(view.pid, :shutdown, 5000)
+        catch
+          :exit, _ -> :ok
+        end
+      end
+    end)
+
+    view
   end
 end

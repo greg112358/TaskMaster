@@ -1,8 +1,8 @@
 defmodule Taskmaster.Grocery do
   import Ecto.Query
   alias Taskmaster.Repo
+  alias Taskmaster.Grocery.Dictionary
   alias Taskmaster.Grocery.Item
-  alias Taskmaster.Grocery.Categorizer
 
   @topic "groceries"
 
@@ -22,9 +22,15 @@ defmodule Taskmaster.Grocery do
     Repo.all(from i in Item, where: i.category == ^category, order_by: [asc: i.inserted_at])
   end
 
-  def add_item(name) do
-    category = Categorizer.categorize(name)
+  @doc """
+  Adds an item, letting the dictionary decide which list it lands on. Words the
+  dictionary does not know go to "everything else" — use `add_item/2` where
+  there is somebody to ask.
+  """
+  def add_item(name), do: add_item(name, Dictionary.category_for!(name))
 
+  @doc "Adds an item to a category the caller has already decided on."
+  def add_item(name, category) do
     %Item{}
     |> Item.changeset(%{name: name, category: category})
     |> Repo.insert()

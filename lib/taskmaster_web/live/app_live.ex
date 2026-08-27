@@ -3,6 +3,7 @@ defmodule TaskmasterWeb.AppLive do
 
   alias Taskmaster.{People, Grocery, Events}
   alias Taskmaster.Events.Alerts
+  alias Taskmaster.Grocery.Dictionary
   alias Taskmaster.Voice.Parser
 
   @impl true
@@ -12,6 +13,7 @@ defmodule TaskmasterWeb.AppLive do
       Grocery.subscribe()
       Events.subscribe()
       Alerts.subscribe()
+      Dictionary.subscribe()
     end
 
     {:ok,
@@ -19,7 +21,7 @@ defmodule TaskmasterWeb.AppLive do
      |> assign(:current_view, :calendar)
      |> assign(:voice_status, :idle)
      |> assign(:last_voice_message, nil)
-     |> assign(:speech_error, nil)
+     |> assign(:device_warnings, %{})
      |> load_data()}
   end
 
@@ -83,11 +85,18 @@ defmodule TaskmasterWeb.AppLive do
     {:noreply, assign(socket, :voice_status, voice_status)}
   end
 
-  # The browser could not read an alert out. This is a setup problem rather
-  # than a transient one, so it stays on screen: the board has no keyboard to
-  # go looking in a console with.
-  def handle_event("speech_unavailable", %{"reason" => reason}, socket) do
-    {:noreply, assign(socket, :speech_error, "Can't read alerts aloud: #{reason}")}
+  # Something the browser cannot do — no text-to-speech voices, no screen wake
+  # lock. These are setup problems rather than transient ones, so they stay on
+  # screen: a wall-mounted board has no keyboard to go hunting in a console
+  # with. A null message clears the warning once the capability comes good.
+  def handle_event("device_warning", %{"key" => key, "message" => message}, socket) do
+    warnings =
+      case message do
+        nil -> Map.delete(socket.assigns.device_warnings, key)
+        message -> Map.put(socket.assigns.device_warnings, key, message)
+      end
+
+    {:noreply, assign(socket, :device_warnings, warnings)}
   end
 
   # Grocery events
@@ -111,6 +120,13 @@ defmodule TaskmasterWeb.AppLive do
 
   def handle_event("clear_groceries", _params, socket) do
     Grocery.clear_all()
+    {:noreply, socket}
+  end
+
+  # The long-press hook cannot address a component directly, so it comes here
+  # and is handed on.
+  def handle_event("hold_grocery_item", %{"name" => name}, socket) do
+    send_update(TaskmasterWeb.GroceryLive, id: "grocery", confirm_forget: name)
     {:noreply, socket}
   end
 
@@ -182,8 +198,40 @@ defmodule TaskmasterWeb.AppLive do
     {:noreply, assign(socket, :grocery_items, Grocery.list_items())}
   end
 
+  # The dictionary changed under the Groceries screen, so its open suggestion
+  # list is now stale. Only nudge the component when it is actually mounted.
+  def handle_info(:dictionary_changed, socket) do
+    if socket.assigns.current_view == :groceries do
+      send_update(TaskmasterWeb.GroceryLive, id: "grocery", refresh_suggestions: true)
+    end
+
+    {:noreply, socket}
+  end
+
   def handle_info({:add_event_from_form, params}, socket) do
     handle_event("add_event", params, socket)
+  end
+
+  # Grocery writes handed up from GroceryLive.
+  def handle_info({:add_grocery_item, name, category}, socket) do
+    Grocery.add_item(String.trim(name), category)
+    {:noreply, socket}
+  end
+
+  def handle_info({:learn_grocery_term, name, category}, socket) do
+    case Dictionary.learn(name, category) do
+      {:ok, term} ->
+        Grocery.add_item(term.name, category)
+        {:noreply, socket}
+
+      {:error, _changeset} ->
+        {:noreply, assign(socket, :last_voice_message, "Couldn't remember #{name}")}
+    end
+  end
+
+  def handle_info({:forget_grocery_term, name}, socket) do
+    Dictionary.forget(name)
+    {:noreply, assign(socket, :last_voice_message, "Forgot #{name}")}
   end
 
   def handle_info(:events_changed, socket) do
@@ -305,6 +353,10 @@ defmodule TaskmasterWeb.AppLive do
   def render(assigns) do
     ~H"""
     <div id="app-root" phx-hook="VoiceRecognition" class="flex flex-col h-screen">
+      <%!-- Keeps the screen awake. Its own element because an element carries
+            only one phx-hook. --%>
+      <div id="wake-lock" phx-hook="WakeLock" class="hidden"></div>
+
       <%!-- Voice hint bar --%>
       <div class="bg-base-200 px-4 py-2 flex items-center justify-between text-sm">
         <div class="flex items-center gap-2">
@@ -318,8 +370,12 @@ defmodule TaskmasterWeb.AppLive do
           </span>
         </div>
         <div class="flex items-center gap-4">
-          <div :if={@speech_error} class="text-warning font-medium">
-            {@speech_error}
+          <div
+            :for={{key, message} <- Enum.sort(@device_warnings)}
+            id={"warning-#{key}"}
+            class="text-warning font-medium"
+          >
+            &#9888; {message}
           </div>
           <div :if={@last_voice_message} class="text-primary font-medium">
             {@last_voice_message}

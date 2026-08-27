@@ -1,0 +1,36 @@
+# Taskmaster family board, as an always-on web app.
+#
+#   sudo cp deploy/taskmaster.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now taskmaster
+#
+# Adjust User and the paths below if the checkout lives somewhere else.
+# See docs/deployment.md.
+
+[Unit]
+Description=Taskmaster family board
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=gregory
+WorkingDirectory=/home/gregory/code/taskmaster
+
+Environment=TASKMASTER_WEB=1
+Environment=PORT=4000
+Environment=TASKMASTER_DB=/home/gregory/.config/taskmaster/taskmaster.db
+
+# Optional. Put SECRET_KEY_BASE here (generate once with `mix phx.gen.secret`);
+# without it a fresh one is generated every boot, which drops open sessions.
+EnvironmentFile=-/etc/taskmaster.env
+
+ExecStart=/home/gregory/code/taskmaster/_build/prod/rel/taskmaster/bin/taskmaster start
+ExecStop=/home/gregory/code/taskmaster/_build/prod/rel/taskmaster/bin/taskmaster stop
+
+# The whole point: come back from a crash, and from a reboot.
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

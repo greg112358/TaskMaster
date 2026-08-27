@@ -11,6 +11,26 @@ config :taskmaster,
   ecto_repos: [Taskmaster.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+# SQLite serialises writers. Without WAL, a reader arriving mid-write fails
+# outright with "database is locked" — which showed up at boot, when the
+# connection pool opens alongside the embedded migrations. WAL lets readers run
+# during a write; busy_timeout makes a writer wait its turn rather than erroring
+# immediately.
+config :taskmaster, Taskmaster.Repo,
+  journal_mode: :wal,
+  busy_timeout: 5_000,
+  pool_size: 5,
+  # SQLite has one writer by definition, so the advisory lock Ecto takes around
+  # migrations buys nothing — and it costs a second connection, because the
+  # lock-holding transaction waits on a Task that needs its own.
+  migration_lock: false,
+  # BEGIN IMMEDIATE rather than BEGIN. A deferred transaction starts as a reader
+  # and takes the write lock only at its first write; if another connection got
+  # there first, SQLite returns SQLITE_BUSY *immediately* and ignores
+  # busy_timeout entirely, because waiting could deadlock. Taking the write lock
+  # up front is what makes busy_timeout actually apply.
+  transaction_mode: :immediate
+
 # Configure the endpoint
 config :taskmaster, TaskmasterWeb.Endpoint,
   url: [host: "localhost"],

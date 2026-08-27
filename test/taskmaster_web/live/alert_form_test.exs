@@ -28,6 +28,7 @@ defmodule TaskmasterWeb.AlertFormTest do
   describe "the alert checkbox" do
     test "the Add Event / Task form offers it", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
 
       html = view |> open_add_form(Date.utc_today()) |> render()
 
@@ -37,6 +38,7 @@ defmodule TaskmasterWeb.AlertFormTest do
 
     test "checking it saves an event that will announce itself", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
 
       view
       |> open_add_form(Date.utc_today())
@@ -49,6 +51,7 @@ defmodule TaskmasterWeb.AlertFormTest do
 
     test "leaving it unchecked saves a silent event", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
 
       view
       |> open_add_form(Date.utc_today())
@@ -68,6 +71,7 @@ defmodule TaskmasterWeb.AlertFormTest do
 
     test "is labelled Frequency", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
 
       html = view |> open_add_form(Date.utc_today()) |> render()
 
@@ -77,6 +81,7 @@ defmodule TaskmasterWeb.AlertFormTest do
 
     test "hides the interval field until a frequency needs one", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
 
       html = view |> open_add_form(Date.utc_today()) |> render()
 
@@ -85,6 +90,7 @@ defmodule TaskmasterWeb.AlertFormTest do
 
     test "keeps the interval field hidden for fixed frequencies", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
       open_add_form(view, Date.utc_today())
 
       for fixed <- ["", "daily", "weekly", "monthly", "yearly"] do
@@ -94,6 +100,7 @@ defmodule TaskmasterWeb.AlertFormTest do
 
     test "shows the interval field, in the right unit, for every-N frequencies", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
       open_add_form(view, Date.utc_today())
 
       for {type, unit} <- [
@@ -110,6 +117,7 @@ defmodule TaskmasterWeb.AlertFormTest do
 
     test "hides the interval again when the frequency stops needing one", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
       open_add_form(view, Date.utc_today())
 
       assert choose_frequency(view, "every_n_weeks") =~ ~s(name="recurrence_interval")
@@ -118,6 +126,7 @@ defmodule TaskmasterWeb.AlertFormTest do
 
     test "saves the interval that was entered", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
       open_add_form(view, Date.utc_today())
       choose_frequency(view, "every_n_weeks")
 
@@ -135,6 +144,7 @@ defmodule TaskmasterWeb.AlertFormTest do
 
     test "reopening the form starts back at no frequency", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
       open_add_form(view, Date.utc_today())
       assert choose_frequency(view, "every_n_days") =~ ~s(name="recurrence_interval")
 
@@ -148,6 +158,7 @@ defmodule TaskmasterWeb.AlertFormTest do
   describe "an alert coming due" do
     test "is pushed to the client to chime and read out", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
 
       Alerts.broadcast(%{
         id: 1,
@@ -162,15 +173,49 @@ defmodule TaskmasterWeb.AlertFormTest do
     end
   end
 
-  describe "speech that cannot be produced" do
-    test "is reported on screen rather than failing silently", %{conn: conn} do
+  describe "capabilities the browser is missing" do
+    test "are reported on screen rather than failing silently", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
 
-      render_hook(view, "speech_unavailable", %{
-        "reason" => "no text-to-speech voices are installed"
+      render_hook(view, "device_warning", %{
+        "key" => "speech",
+        "message" => "can't read alerts aloud: no voices are installed"
       })
 
-      assert render(view) =~ "Can&#39;t read alerts aloud: no text-to-speech voices are installed"
+      assert render(view) =~ "can&#39;t read alerts aloud: no voices are installed"
+    end
+
+    test "stack up rather than replacing each other", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
+
+      render_hook(view, "device_warning", %{"key" => "speech", "message" => "no voices"})
+
+      render_hook(view, "device_warning", %{"key" => "wake_lock", "message" => "screen may sleep"})
+
+      html = render(view)
+      assert html =~ "no voices"
+      assert html =~ "screen may sleep"
+    end
+
+    test "clear when the hook reports the capability is back", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
+
+      render_hook(view, "device_warning", %{"key" => "wake_lock", "message" => "screen may sleep"})
+
+      assert render(view) =~ "screen may sleep"
+
+      render_hook(view, "device_warning", %{"key" => "wake_lock", "message" => nil})
+      refute render(view) =~ "screen may sleep"
+    end
+
+    test "the wake lock hook is mounted", %{conn: conn} do
+      {:ok, view, html} = live(conn, "/")
+      isolate_view(view)
+
+      assert html =~ ~s(phx-hook="WakeLock")
     end
   end
 
@@ -184,7 +229,8 @@ defmodule TaskmasterWeb.AlertFormTest do
           alert: true
         })
 
-      {:ok, _view, html} = live(conn, "/")
+      {:ok, view, html} = live(conn, "/")
+      isolate_view(view)
 
       assert html =~ "Chimes and reads aloud when due"
     end
@@ -198,7 +244,8 @@ defmodule TaskmasterWeb.AlertFormTest do
           alert: false
         })
 
-      {:ok, _view, html} = live(conn, "/")
+      {:ok, view, html} = live(conn, "/")
+      isolate_view(view)
 
       refute html =~ "Chimes and reads aloud when due"
     end

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A family chore/calendar board: a **wall-mounted touchscreen appliance**, not a web app. It runs as an Elixir Desktop (wxWebView) window on a Raspberry Pi with an always-on microphone. `requirements.md` is the product spec, `stack.md` the target hardware, `instructions.md` a standing instruction to document work as you go.
+A family chore/calendar board: a **wall-mounted touchscreen appliance**. It runs two ways from one codebase — an Elixir Desktop (wx) window on the machine itself, or headless as a **web app** serving a wall-mounted Android tablet (`TASKMASTER_WEB=1`; see `docs/deployment.md`). Web app on a tablet is the current target. `requirements.md` is the product spec, `instructions.md` a standing instruction to document work as you go. `stack.md` still describes the older Raspberry Pi plan and is stale on the display half.
 
 Two constraints from the spec drive most UI decisions:
 
@@ -22,7 +22,7 @@ mix assets.build              # tailwind + esbuild into priv/static
 iex -S mix                    # runs the app; opens the desktop window
 ```
 
-The HTTP port is `0` (random). To reach the app from a browser instead of the wx window, run `iex -S mix` and evaluate `TaskmasterWeb.Endpoint.url()`.
+In the default desktop mode the HTTP port is `0` (random) — to reach it from a browser, evaluate `TaskmasterWeb.Endpoint.url()` in the IEx session. `TASKMASTER_WEB=1 PORT=4000 mix run --no-halt` instead binds `0.0.0.0:4000` with no wx window, which is how the tablet reaches it. Production runs as a systemd-managed release; `docs/deployment.md` has the full picture.
 
 ## Architecture
 
@@ -36,9 +36,9 @@ The HTTP port is `0` (random). To reach the app from a browser instead of the wx
 
 The router has exactly one route: `live "/", AppLive`. `TaskmasterWeb.AppLive` owns **all** application state and **all** `handle_event` clauses.
 
-`GroceryLive`, `ChoreListLive` and `SettingsLive` are live_components with no `handle_event` at all — their buttons omit `phx-target`, so clicks bubble straight to `AppLive`. Follow that pattern; don't add local state to them.
+`ChoreListLive` and `SettingsLive` are live_components with no `handle_event` at all — their buttons omit `phx-target`, so clicks bubble straight to `AppLive`. Follow that pattern; don't add local state to them.
 
-`CalendarLive` is the deliberate exception, because month/week mode, the displayed month and the add-event modal are view state nobody else needs. It uses `phx-target={@myself}` for those, but hands actual writes back to the parent with `send(self(), {:add_event_from_form, params})`. Parent→child navigation goes the other way via `send_update(CalendarLive, id: "calendar", action: :prev)`.
+`CalendarLive` and `GroceryLive` are the deliberate exceptions, because view mode, the displayed month, the typed query, the suggestion list and the modals are state nobody outside those screens needs. They use `phx-target={@myself}` for that, but hand actual writes back to the parent with `send(self(), ...)`. Parent→child messages go the other way via `send_update(CalendarLive, id: "calendar", action: :prev)`.
 
 ### Contexts broadcast; AppLive reloads
 
@@ -78,6 +78,23 @@ voice input no matter which browser is installed on the device, and
 than throwing — which is why the hook checks `getVoices()` and pushes
 `speech_unavailable` to `AppLive` for on-screen display.
 
+### Groceries are categorised by an editable dictionary
+
+Which of the three lists an item lands on comes from the `grocery_terms` table, not from code. It is seeded from `Taskmaster.Grocery.DefaultTerms` by migration 5 and edited from the screen thereafter, so **editing `DefaultTerms` does nothing to an existing database**. Matching is exact-then-longest-substring, so "whole milk" resolves via "milk" and "corned beef" beats "corn".
+
+The one ordering trap: after handing a dictionary write up to `AppLive`, a component must **not** recompute suggestions itself — that runs before the write. `Dictionary` broadcasts `:dictionary_changed` and the component refreshes on that. Full detail in **`docs/grocery-dictionary.md`**.
+
+### Browser capabilities fail silently — report them
+
+`speechSynthesis.speak()` with no voices installed does nothing at all, and
+`navigator.wakeLock` is simply `undefined` outside a secure context. On a board
+with no keyboard that is indistinguishable from a bug in the app.
+
+So hooks push `device_warning` (`%{"key" => ..., "message" => ...}`) to
+`AppLive`, which keys them in `@device_warnings` and renders them in the status
+bar; a `nil` message clears that key. **Add new capability checks through that
+channel** rather than adding another assign.
+
 ### Alerts
 
 The chime-and-read-aloud checkbox has its own reference doc: **`docs/alerts.md`** — read it before touching `Taskmaster.Events.Alerts`, `AlertScheduler`, or `assets/js/chime.js`.
@@ -90,6 +107,16 @@ The chime-and-read-aloud checkbox has its own reference doc: **`docs/alerts.md`*
 - `desktop_window: false` and `alert_scheduler: false` keep the wx window and the background poller out of the suite. Tests that need a scheduler start their own with a controlled `:tick_interval`.
 
 `DataCase`/`ConnCase` run in shared sandbox mode unless a test is `async`, so spawned processes get database access without an explicit `allow`.
+
+SQLite runs in **WAL** mode (`config/config.exs`) — without it, a reader arriving mid-write fails outright with "database is locked". Expect a few such errors on the *first* boot against a new database file, while the pool opens alongside the embedded migrations; every boot after that is clean.
+
+Transactions are `:immediate` (`BEGIN IMMEDIATE`). A deferred transaction starts as a reader and takes the write lock at its first write; if another connection got there first, SQLite returns SQLITE_BUSY **immediately and ignores `busy_timeout`**, because waiting could deadlock. Taking the lock up front is what makes `busy_timeout` apply at all.
+
+Two test-only deviations, both load-bearing: `journal_mode: :delete`, and `pool_size: 2` — the minimum, since Ecto always runs a migration in a Task while the caller holds a connection.
+
+**LiveView tests must call `isolate_view/1`** (in `ConnCase`) on every mounted view. `live/2` links the view to the test process, so it dies exactly as the test ends and a message still in flight can write while the *next* test owns the connection — an intermittent "Database busy" in an unrelated test. `isolate_view/1` unlinks and stops it synchronously in an `on_exit` that LIFO puts before the sandbox's.
+
+Tests touching the dictionary must also let its PubSub round trip drain before asserting on the DOM — see `settle/1` in `grocery_dictionary_test.exs`.
 
 ## Stack notes
 

@@ -1,13 +1,21 @@
 import Config
 
-# SQLite test database. A file rather than `:memory:` because an in-memory
-# SQLite database forces pool_size: 1, and the embedded migrations that
-# Taskmaster.Application runs at boot need a second connection (Ecto runs them
-# from a Task), which deadlocks a single-connection pool.
+# SQLite test database.
+#
+# A file rather than `:memory:`, because the schema has to survive across
+# connections — and there are at least two, since Ecto always runs a migration
+# inside a Task and the caller holds a connection while it waits.
+#
+# WAL is off here even though production uses it: under WAL a write-write
+# collision returns SQLITE_BUSY immediately rather than honouring busy_timeout,
+# and a LiveView still finishing work as one test ends will collide with the
+# next test's connection. The rollback journal waits instead, which is what
+# makes the suite deterministic.
 config :taskmaster, Taskmaster.Repo,
   database: Path.expand("../taskmaster_test.db", __DIR__),
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: 5
+  pool_size: 2,
+  journal_mode: :delete
 
 config :taskmaster, TaskmasterWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],

@@ -148,3 +148,45 @@ and succeed, WAL is persisted into the database file, and **every subsequent
 boot is clean**. It is noise, not a failure — but if you see it on every boot,
 the database file is being recreated each time, which means `TASKMASTER_DB` is
 pointing somewhere non-persistent.
+
+---
+
+## Login
+
+Every page is behind the single username and password in **`credentials.txt`** —
+one line, `username:password`. Blank lines and `#` comments are ignored, and
+only the first colon splits, so a password may contain colons.
+
+The file is gitignored and never committed. It is looked for in the working
+directory, then `~/.config/taskmaster/`; setting `TASKMASTER_CREDENTIALS` (or
+`config :taskmaster, :credentials_path`) overrides that and is **authoritative**
+— a configured path that does not exist means unconfigured, rather than a quiet
+fall back to some other file.
+
+**With no credentials file, nothing is served.** `TaskmasterWeb.Plugs.Auth` sits
+in the `:browser` pipeline and replaces every response with a setup page naming
+the file to create. The file is re-read on each request, so creating it takes
+effect without a restart — which matters, since until it exists there is no page
+to restart the board from.
+
+### Being asked once, not every day
+
+Entry is HTTP basic auth, so the browser puts up its own prompt. Browsers only
+keep basic-auth credentials for the life of the session, though, and a wall
+board should never ask twice — so a successful login also sets a **signed cookie
+holding a fingerprint of the credentials**, with a ten-year max-age, and that
+cookie is what lets the board back in afterwards. The fingerprint is derived
+from `username:password`, so **editing `credentials.txt` locks out every browser
+that had been remembered.**
+
+The LiveView socket cannot see the basic-auth header, so the plug also writes the
+fingerprint into the session and `AppLive.mount/3` checks it. Connecting the
+socket directly, without a page load, gets redirected.
+
+Sessions are stored in ETS and therefore lost on restart — the cookie is not, so
+a restart does not prompt anyone.
+
+> This is one shared login for a household appliance on a trusted LAN, sent in
+> the clear over HTTP. It keeps the family's calendar off a guest's phone; it is
+> not protection against anyone on the network. Put it behind HTTPS if that
+> matters — which the screen wake lock wants anyway.

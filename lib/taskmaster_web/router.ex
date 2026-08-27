@@ -8,6 +8,7 @@ defmodule TaskmasterWeb.Router do
     plug :put_root_layout, html: {TaskmasterWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug TaskmasterWeb.Plugs.Auth
   end
 
   scope "/", TaskmasterWeb do

@@ -110,9 +110,9 @@ defmodule TaskmasterWeb.CalendarLive do
 
   # The unit an interval is counted in, or nil for the frequencies that need no
   # interval at all. Doubles as the "should the interval field be shown?" test.
-  defp interval_unit("every_n_days"), do: "days"
-  defp interval_unit("every_n_weeks"), do: "weeks"
-  defp interval_unit("every_n_months"), do: "months"
+  defp interval_unit("every_n_days"), do: "Days"
+  defp interval_unit("every_n_weeks"), do: "Weeks"
+  defp interval_unit("every_n_months"), do: "Months"
   defp interval_unit(_), do: nil
 
   @impl true
@@ -161,7 +161,7 @@ defmodule TaskmasterWeb.CalendarLive do
             class={"text-xs px-1 rounded mb-0.5 truncate
             #{if event.type == "task", do: "bg-warning/30 text-warning-content", else: "bg-info/30 text-info-content"}"}
           >
-            <span :if={event.alert} title="Chimes and reads aloud when due">&#128276;</span>{event.title}
+            <span :if={event.alert} title="Chimes and reads aloud">&#128276;</span>{event.title}
           </div>
         </div>
       </div>
@@ -183,7 +183,7 @@ defmodule TaskmasterWeb.CalendarLive do
             #{if event.type == "task", do: "bg-warning/30", else: "bg-info/30"}"}
           >
             <div class="font-semibold">
-              <span :if={event.alert} title="Chimes and reads aloud when due">&#128276;</span>{event.title}
+              <span :if={event.alert} title="Chimes and reads aloud">&#128276;</span>{event.title}
             </div>
             <div :if={event.person} class="text-sm text-base-content/60">{event.person.name}</div>
           </div>
@@ -247,7 +247,7 @@ defmodule TaskmasterWeb.CalendarLive do
             </div>
 
             <div :if={interval_unit(@recurrence_type)} class="mb-3">
-              <label class="label text-xl">How many {interval_unit(@recurrence_type)} between?</label>
+              <label class="label text-xl">{interval_unit(@recurrence_type)}</label>
               <input
                 type="number"
                 name="recurrence_interval"
@@ -268,7 +268,7 @@ defmodule TaskmasterWeb.CalendarLive do
                   value="true"
                   class="checkbox checkbox-lg checkbox-primary"
                 />
-                <span>&#128276; Chime &amp; read aloud when due</span>
+                <span>&#128276; Chime and read aloud</span>
               </label>
               <button
                 type="button"

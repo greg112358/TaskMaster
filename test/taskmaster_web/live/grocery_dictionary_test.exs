@@ -62,7 +62,7 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
 
       html = submit(view, "milk")
 
-      refute html =~ "Which list?"
+      refute html =~ "categorize-dialog"
       assert [%{name: "milk", category: "meat_dairy"}] = Grocery.list_items()
     end
 
@@ -81,8 +81,10 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
 
       html = submit(view, "quinoa")
 
-      assert html =~ "Which list?"
+      assert html =~ "categorize-dialog"
       assert html =~ "quinoa"
+      # Terse: the word, the three lists, cancel. No prose.
+      refute html =~ "I don't know"
       assert Grocery.list_items() == []
     end
 
@@ -108,7 +110,7 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
 
       html = submit(view, "quinoa")
 
-      refute html =~ "Which list?"
+      refute html =~ "categorize-dialog"
       assert [_, %{name: "quinoa", category: "produce"}] = Grocery.list_items()
     end
 
@@ -118,7 +120,7 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
 
       view |> element("#categorize-dialog button", "Cancel") |> render_click()
 
-      refute render(view) =~ "Which list?"
+      refute render(view) =~ "categorize-dialog"
       assert Grocery.list_items() == []
       assert Dictionary.category_for("quinoa") == :unknown
     end
@@ -126,7 +128,7 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
     test "a blank entry is ignored rather than prompting", %{conn: conn} do
       view = groceries(conn)
 
-      refute submit(view, "   ") =~ "Which list?"
+      refute submit(view, "   ") =~ "categorize-dialog"
       assert Grocery.list_items() == []
     end
   end
@@ -174,7 +176,7 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
 
       html = view |> forget_x("milk") |> render_click()
 
-      assert html =~ "Forget this word?"
+      assert html =~ ~s(Delete &quot;)
       # Nothing gone yet.
       assert Dictionary.category_for("milk") == {:ok, "meat_dairy"}
     end
@@ -184,7 +186,7 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
       type(view, "milk")
       view |> forget_x("milk") |> render_click()
 
-      view |> element("#forget-dialog button", "Forget it") |> render_click()
+      view |> element("#forget-dialog button", "Yes") |> render_click()
       render(view)
 
       assert Dictionary.category_for("milk") == :unknown
@@ -194,7 +196,7 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
       view = groceries(conn)
       type(view, "milk")
       view |> forget_x("milk") |> render_click()
-      view |> element("#forget-dialog button", "Forget it") |> render_click()
+      view |> element("#forget-dialog button", "Yes") |> render_click()
 
       refute settle(view) =~ ~s(phx-value-name="milk")
     end
@@ -203,10 +205,10 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
       view = groceries(conn)
       type(view, "milk")
       view |> forget_x("milk") |> render_click()
-      view |> element("#forget-dialog button", "Forget it") |> render_click()
+      view |> element("#forget-dialog button", "Yes") |> render_click()
       render(view)
 
-      assert submit(view, "milk") =~ "Which list?"
+      assert submit(view, "milk") =~ "categorize-dialog"
     end
 
     test "cancelling keeps the word", %{conn: conn} do
@@ -214,9 +216,9 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
       type(view, "milk")
       view |> forget_x("milk") |> render_click()
 
-      view |> element("#forget-dialog button", "Cancel") |> render_click()
+      view |> element("#forget-dialog button", "No") |> render_click()
 
-      refute render(view) =~ "Forget this word?"
+      refute render(view) =~ ~s(Delete &quot;)
       assert Dictionary.category_for("milk") == {:ok, "meat_dairy"}
     end
   end
@@ -226,7 +228,7 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
       view = groceries(conn)
       submit(view, "milk")
 
-      assert hold(view, "milk") =~ "Forget this word?"
+      assert hold(view, "milk") =~ ~s(Delete &quot;milk&quot;?)
     end
 
     test "offers the term responsible, not the item's own name", %{conn: conn} do
@@ -235,10 +237,9 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
 
       html = hold(view, "whole milk")
 
-      assert html =~ "Forget this word?"
       # "whole milk" was never in the dictionary; "milk" is what coloured it.
-      assert html =~ "milk</span>"
-      refute html =~ "whole milk</span>"
+      assert html =~ ~s(Delete &quot;milk&quot;?)
+      refute html =~ ~s(Delete &quot;whole milk&quot;?)
     end
 
     test "confirming forgets it but leaves the item on the list", %{conn: conn} do
@@ -246,7 +247,7 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
       submit(view, "milk")
       hold(view, "milk")
 
-      view |> element("#forget-dialog button", "Forget it") |> render_click()
+      view |> element("#forget-dialog button", "Yes") |> render_click()
       render(view)
 
       assert Dictionary.category_for("milk") == :unknown
@@ -259,8 +260,8 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
 
       html = hold(view, "quinoa")
 
-      assert html =~ "Nothing to forget"
-      refute html =~ "Forget this word?"
+      assert html =~ "not in dictionary"
+      refute html =~ ~s(Delete &quot;)
     end
   end
 end

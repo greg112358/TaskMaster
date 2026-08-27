@@ -32,7 +32,7 @@ defmodule TaskmasterWeb.AlertFormTest do
 
       html = view |> open_add_form(Date.utc_today()) |> render()
 
-      assert html =~ "Chime &amp; read aloud when due"
+      assert html =~ "Chime and read aloud"
       assert html =~ ~s(name="alert")
     end
 
@@ -104,14 +104,15 @@ defmodule TaskmasterWeb.AlertFormTest do
       open_add_form(view, Date.utc_today())
 
       for {type, unit} <- [
-            {"every_n_days", "days"},
-            {"every_n_weeks", "weeks"},
-            {"every_n_months", "months"}
+            {"every_n_days", "Days"},
+            {"every_n_weeks", "Weeks"},
+            {"every_n_months", "Months"}
           ] do
         html = choose_frequency(view, type)
 
         assert html =~ ~s(name="recurrence_interval")
-        assert html =~ "How many #{unit} between?"
+        # The label is the bare unit now, not a sentence.
+        assert html =~ ~r{<label[^>]*>\s*#{unit}\s*</label>}
       end
     end
 
@@ -232,7 +233,7 @@ defmodule TaskmasterWeb.AlertFormTest do
       {:ok, view, html} = live(conn, "/")
       isolate_view(view)
 
-      assert html =~ "Chimes and reads aloud when due"
+      assert html =~ "Chimes and reads aloud"
     end
 
     test "leaves silent events unmarked", %{conn: conn} do
@@ -247,7 +248,7 @@ defmodule TaskmasterWeb.AlertFormTest do
       {:ok, view, html} = live(conn, "/")
       isolate_view(view)
 
-      refute html =~ "Chimes and reads aloud when due"
+      refute html =~ "Chimes and reads aloud"
     end
   end
 end

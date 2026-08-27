@@ -78,6 +78,12 @@ voice input no matter which browser is installed on the device, and
 than throwing — which is why the hook checks `getVoices()` and pushes
 `speech_unavailable` to `AppLive` for on-screen display.
 
+### Every page is behind one shared login
+
+`TaskmasterWeb.Plugs.Auth` gates the `:browser` pipeline against `credentials.txt` (gitignored, one line `username:password`). No file means **no page is served at all** — a setup page replaces every response. Entry is basic auth; a signed ten-year cookie holding a fingerprint of the credentials is what avoids re-prompting, and editing the file invalidates it. The socket can't see the header, so the plug also puts the fingerprint in the session and `AppLive.mount/3` checks it.
+
+Tests: `ConnCase` hands out an **authenticated** conn by default (fixture at `test/support/credentials.txt`, pointed at by `config/test.exs`); tests about auth build their own with `Phoenix.ConnTest.build_conn/0`. Details in `docs/deployment.md`.
+
 ### Groceries are categorised by an editable dictionary
 
 Which of the three lists an item lands on comes from the `grocery_terms` table, not from code. It is seeded from `Taskmaster.Grocery.DefaultTerms` by migration 5 and edited from the screen thereafter, so **editing `DefaultTerms` does nothing to an existing database**. Matching is exact-then-longest-substring, so "whole milk" resolves via "milk" and "corned beef" beats "corn".

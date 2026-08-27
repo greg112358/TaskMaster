@@ -26,8 +26,11 @@ defmodule Taskmaster.Grocery.Dictionary do
   that is the right trade: an unrecognised word simply asks which list it goes
   on, and is never asked about again. A wrong guess just looks broken.
 
-  Anything neither step matches is `:unknown`, which is the signal for the UI to
-  ask.
+  Both steps are retried against a singular and a plural form of the name, so
+  "carrot" finds the stored "carrots" and "tomatoes" finds the stored "tomato" —
+  the dictionary stays small instead of carrying both spellings of everything.
+
+  Anything no step matches is `:unknown`, which is the signal for the UI to ask.
   """
 
   import Ecto.Query
@@ -87,8 +90,65 @@ defmodule Taskmaster.Grocery.Dictionary do
   """
   def matching_term(name) do
     case normalize(name) do
-      "" -> nil
-      normalized -> exact_match(normalized) || longest_contained_match(normalized)
+      "" ->
+        nil
+
+      normalized ->
+        normalized
+        |> variants()
+        |> Enum.find_value(fn candidate ->
+          exact_match(candidate) || longest_contained_match(candidate)
+        end)
+    end
+  end
+
+  # Plurals, without doubling the size of the dictionary. The stored term is
+  # whichever form people write ("carrots", "tomato"), and a query that differs
+  # only in number is retried the other way round. A nonsense variant simply
+  # fails to match, so guessing wrong here costs nothing.
+  defp variants(normalized) do
+    [normalized, singularize(normalized), pluralize_last(normalized)]
+    |> Enum.uniq()
+  end
+
+  defp singularize(name) do
+    name |> String.split(" ") |> Enum.map_join(" ", &singular/1)
+  end
+
+  defp singular(word) do
+    cond do
+      String.ends_with?(word, "ies") and String.length(word) > 4 ->
+        String.replace_suffix(word, "ies", "y")
+
+      # "ss" and "us" endings are not plurals: swiss, asparagus, hummus.
+      String.ends_with?(word, ["ss", "us"]) ->
+        word
+
+      String.ends_with?(word, "es") and String.length(word) > 4 ->
+        String.replace_suffix(word, "es", "")
+
+      String.ends_with?(word, "s") and String.length(word) > 3 ->
+        String.replace_suffix(word, "s", "")
+
+      true ->
+        word
+    end
+  end
+
+  # Only the last word: grocery names carry their number on the head noun
+  # ("green bean" -> "green beans"), never on the modifier.
+  defp pluralize_last(name) do
+    case String.split(name, " ") do
+      [] -> name
+      words -> words |> List.update_at(-1, &plural/1) |> Enum.join(" ")
+    end
+  end
+
+  defp plural(word) do
+    cond do
+      String.ends_with?(word, "s") -> word
+      String.ends_with?(word, "y") -> String.replace_suffix(word, "y", "ies")
+      true -> word <> "s"
     end
   end
 

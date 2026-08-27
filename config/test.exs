@@ -36,3 +36,8 @@ config :phoenix,
 config :taskmaster,
   desktop_window: false,
   alert_scheduler: false
+
+# A fixture rather than the real credentials.txt, so the suite neither depends
+# on nor reads the developer's own login.
+config :taskmaster,
+  credentials_path: Path.expand("../test/support/credentials.txt", __DIR__)

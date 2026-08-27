@@ -14,7 +14,8 @@ defmodule Taskmaster.Repo.Migrator do
       {2, Taskmaster.Repo.Migrations.CreateGroceryItems},
       {3, Taskmaster.Repo.Migrations.CreateEvents},
       {4, Taskmaster.Repo.Migrations.AddAlertToEvents},
-      {5, Taskmaster.Repo.Migrations.CreateGroceryTerms}
+      {5, Taskmaster.Repo.Migrations.CreateGroceryTerms},
+      {6, Taskmaster.Repo.Migrations.ReseedGroceryTerms}
     ]
   end
 end

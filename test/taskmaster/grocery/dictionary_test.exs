@@ -5,8 +5,16 @@ defmodule Taskmaster.Grocery.DictionaryTest do
   alias Taskmaster.Grocery.Dictionary
 
   describe "the built-in vocabulary" do
-    test "is seeded into the table by the migration" do
-      assert Dictionary.count() > 100
+    test "is small on purpose — household words, not an encyclopedia" do
+      count = Dictionary.count()
+      assert count > 80 and count < 160
+    end
+
+    test "leaves out words nobody writes on a grocery list" do
+      for obscure <- ~w(anaheim ancho rambutan soursop epazote lovage guajillo) do
+        assert Dictionary.category_for(obscure) == :unknown,
+               "#{obscure} should not ship in the dictionary"
+      end
     end
 
     test "categorises the words the old hardcoded lists did" do
@@ -18,7 +26,7 @@ defmodule Taskmaster.Grocery.DictionaryTest do
   describe "category_for/1" do
     test "is case and whitespace insensitive" do
       assert Dictionary.category_for("  MILK  ") == {:ok, "meat_dairy"}
-      assert Dictionary.category_for("Bok   Choy") == {:ok, "produce"}
+      assert Dictionary.category_for("Green   Beans") == {:ok, "produce"}
     end
 
     test "matches a known word inside a longer name" do
@@ -30,6 +38,9 @@ defmodule Taskmaster.Grocery.DictionaryTest do
       # "corn" is produce and "corned beef" is meat & dairy; the longer term wins
       assert Dictionary.category_for("corn") == {:ok, "produce"}
       assert Dictionary.category_for("corned beef") == {:ok, "meat_dairy"}
+      # "butter" is dairy; "peanut butter" is longer, so it wins.
+      assert Dictionary.category_for("butter") == {:ok, "meat_dairy"}
+      assert Dictionary.category_for("peanut butter") == {:ok, "other"}
     end
 
     test "only matches whole words, so fragments cannot hijack a name" do
@@ -42,9 +53,33 @@ defmodule Taskmaster.Grocery.DictionaryTest do
 
     test "keeps multi-word terms intact" do
       assert Dictionary.category_for("hot dog") == {:ok, "meat_dairy"}
-      assert Dictionary.category_for("bok choy") == {:ok, "produce"}
+      assert Dictionary.category_for("green beans") == {:ok, "produce"}
       assert Dictionary.category_for("sweet potato") == {:ok, "produce"}
       assert Dictionary.category_for("ice cream") == {:ok, "meat_dairy"}
+    end
+
+    test "matches either number, whichever way the term is stored" do
+      # stored plural, asked singular
+      assert Dictionary.category_for("carrot") == {:ok, "produce"}
+      assert Dictionary.category_for("grape") == {:ok, "produce"}
+      assert Dictionary.category_for("strawberry") == {:ok, "produce"}
+      assert Dictionary.category_for("green bean") == {:ok, "produce"}
+
+      # stored singular, asked plural
+      assert Dictionary.category_for("tomatoes") == {:ok, "produce"}
+      assert Dictionary.category_for("potatoes") == {:ok, "produce"}
+      assert Dictionary.category_for("eggs") == {:ok, "meat_dairy"}
+      assert Dictionary.category_for("onions") == {:ok, "produce"}
+    end
+
+    test "does not mistake a word ending in s for a plural" do
+      assert Dictionary.category_for("asparagus") == {:ok, "produce"}
+      assert Dictionary.category_for("swiss") == {:ok, "meat_dairy"}
+    end
+
+    test "keeps pantry lookalikes off the dairy and produce lists" do
+      assert Dictionary.category_for("peanut butter") == {:ok, "other"}
+      assert Dictionary.category_for("orange juice") == {:ok, "other"}
     end
 
     test "does not let a multi-word term's fragments match on their own" do
@@ -129,6 +164,12 @@ defmodule Taskmaster.Grocery.DictionaryTest do
 
     test "matches inside a word as well as at the start" do
       assert Dictionary.suggest("hicken") |> Enum.any?(&(&1.name == "chicken"))
+    end
+
+    test "does not offer a word that was deleted" do
+      {:ok, _} = Dictionary.forget("milk")
+
+      refute Dictionary.suggest("milk") |> Enum.any?(&(&1.name == "milk"))
     end
 
     test "honours the limit" do

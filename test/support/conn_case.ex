@@ -34,7 +34,20 @@ defmodule TaskmasterWeb.ConnCase do
 
   setup tags do
     Taskmaster.DataCase.setup_sandbox(tags)
-    {:ok, conn: Phoenix.ConnTest.build_conn()}
+    {:ok, conn: authenticated_conn()}
+  end
+
+  @doc """
+  A conn carrying the fixture credentials. Every page is behind
+  `TaskmasterWeb.Plugs.Auth`, so this is the default; tests that are *about*
+  authentication build their own conn with `Phoenix.ConnTest.build_conn/0`.
+  """
+  def authenticated_conn do
+    Phoenix.ConnTest.build_conn()
+    |> Plug.Conn.put_req_header(
+      "authorization",
+      Plug.BasicAuth.encode_basic_auth("test", "secret")
+    )
   end
 
   @doc """
@@ -54,13 +67,19 @@ defmodule TaskmasterWeb.ConnCase do
       view = isolate_view(view)
   """
   def isolate_view(view) do
+    # Both the view and LiveViewTest's client proxy are linked to the test
+    # process; unlinking only the view still lets the proxy propagate an exit.
+    {_ref, _topic, proxy_pid} = view.proxy
+
     Process.unlink(view.pid)
+    Process.unlink(proxy_pid)
 
     ExUnit.Callbacks.on_exit(fn ->
-      if Process.alive?(view.pid) do
-        # Synchronous: returns only once the view has actually terminated.
+      # Synchronous: each returns only once that process has terminated, so no
+      # write can still be in flight when the sandbox owner is released.
+      for pid <- [view.pid, proxy_pid], Process.alive?(pid) do
         try do
-          GenServer.stop(view.pid, :shutdown, 5000)
+          GenServer.stop(pid, :shutdown, 5000)
         catch
           :exit, _ -> :ok
         end

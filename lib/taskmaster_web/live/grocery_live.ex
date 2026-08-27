@@ -185,8 +185,8 @@ defmodule TaskmasterWeb.GroceryLive do
               phx-click="ask_forget"
               phx-value-name={term.name}
               phx-target={@myself}
-              title={"Forget #{term.name}"}
-              aria-label={"Forget #{term.name}"}
+              title={"Delete #{term.name}"}
+              aria-label={"Delete #{term.name}"}
               class="px-5 py-4 text-3xl font-bold text-red-600 hover:bg-red-600/10 cursor-pointer"
             >
               &times;
@@ -228,9 +228,7 @@ defmodule TaskmasterWeb.GroceryLive do
         </div>
       </div>
 
-      <p class="mt-6 text-base text-base-content/50">
-        Press and hold an item to forget the word behind it.
-      </p>
+      <p class="mt-6 text-base text-base-content/50">Hold to delete word.</p>
 
       <%!-- "Which list?" — shown when the board does not know the word --%>
       <div
@@ -239,10 +237,7 @@ defmodule TaskmasterWeb.GroceryLive do
         class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
       >
         <div class="bg-base-100 rounded-lg p-6 w-full max-w-lg shadow-xl">
-          <h2 class="text-3xl font-bold mb-2">Which list?</h2>
-          <p class="text-xl text-base-content/70 mb-5">
-            I don't know <span class="font-bold text-base-content">{@categorizing}</span>. Where does it go? I'll remember.
-          </p>
+          <h2 class="text-3xl font-bold mb-5">{@categorizing}</h2>
 
           <div class="flex flex-col gap-3">
             <button
@@ -276,12 +271,7 @@ defmodule TaskmasterWeb.GroceryLive do
           :if={match?({:term, _}, @forgetting)}
           class="bg-base-100 rounded-lg p-6 w-full max-w-lg shadow-xl"
         >
-          <h2 class="text-3xl font-bold mb-2">Forget this word?</h2>
-          <p class="text-xl text-base-content/70 mb-5">
-            <span class="font-bold text-base-content">{elem(@forgetting, 1)}</span>
-            will stop being suggested, and I'll ask which list it goes on next time.
-            Anything already on the list stays put.
-          </p>
+          <h2 class="text-3xl font-bold mb-5">Delete "{elem(@forgetting, 1)}"?</h2>
 
           <div class="flex gap-3">
             <button
@@ -289,36 +279,32 @@ defmodule TaskmasterWeb.GroceryLive do
               phx-target={@myself}
               class="btn btn-lg btn-error flex-1 text-xl"
             >
-              Forget it
+              Yes
             </button>
             <button
               phx-click="cancel_forget"
               phx-target={@myself}
               class="btn btn-lg btn-ghost flex-1 text-xl"
             >
-              Cancel
+              No
             </button>
           </div>
         </div>
 
         <%!-- Held an item whose word was never in the dictionary (added by
-              voice, say). Nothing to forget, so say so rather than pretending. --%>
+              voice, say). Nothing to delete, so say so rather than pretending. --%>
         <div
           :if={match?({:unknown, _}, @forgetting)}
           class="bg-base-100 rounded-lg p-6 w-full max-w-lg shadow-xl"
         >
-          <h2 class="text-3xl font-bold mb-2">Nothing to forget</h2>
-          <p class="text-xl text-base-content/70 mb-5">
-            <span class="font-bold text-base-content">{elem(@forgetting, 1)}</span>
-            isn't in the dictionary — it went on the list without being learned.
-          </p>
+          <h2 class="text-3xl font-bold mb-5">"{elem(@forgetting, 1)}" not in dictionary</h2>
 
           <button
             phx-click="cancel_forget"
             phx-target={@myself}
             class="btn btn-lg btn-ghost w-full text-xl"
           >
-            Close
+            OK
           </button>
         </div>
       </div>

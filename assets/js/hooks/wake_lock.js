@@ -26,11 +26,7 @@ const WakeLock = {
 
   async acquire() {
     if (!("wakeLock" in navigator)) {
-      this.warn(
-        window.isSecureContext
-          ? "this browser has no screen wake lock"
-          : "screen wake lock needs https, or a localhost address"
-      );
+      this.warn(window.isSecureContext ? "not supported" : "needs https");
       return;
     }
 
@@ -46,7 +42,7 @@ const WakeLock = {
       // Chrome refuses the request when the document is not visible, and some
       // versions want a user gesture first. A tap on the board fixes both, so
       // retry on the next one rather than giving up for the session.
-      this.warn(`screen may sleep (${error.name})`);
+      this.warn(error.name);
       this.retryOnNextTouch();
     }
   },
@@ -66,7 +62,7 @@ const WakeLock = {
 
   warn(message) {
     console.warn(`Wake lock: ${message}`);
-    this.pushEvent("device_warning", { key: "wake_lock", message: message });
+    this.pushEvent("device_warning", { key: "wake_lock", message: `Screen may sleep: ${message}` });
   },
 
   clearWarning() {

@@ -7,7 +7,24 @@ defmodule TaskmasterWeb.AppLive do
   alias Taskmaster.Voice.Parser
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
+    if authorized?(session) do
+      {:ok, mount_board(socket)}
+    else
+      # Only reachable by connecting the socket directly; a page load has
+      # already been through TaskmasterWeb.Plugs.Auth.
+      {:ok, redirect(socket, to: ~p"/")}
+    end
+  end
+
+  defp authorized?(session) do
+    case Taskmaster.Auth.fingerprint() do
+      {:ok, fingerprint} -> session["auth"] == fingerprint
+      :error -> false
+    end
+  end
+
+  defp mount_board(socket) do
     if connected?(socket) do
       People.subscribe()
       Grocery.subscribe()
@@ -16,13 +33,12 @@ defmodule TaskmasterWeb.AppLive do
       Dictionary.subscribe()
     end
 
-    {:ok,
-     socket
-     |> assign(:current_view, :calendar)
-     |> assign(:voice_status, :idle)
-     |> assign(:last_voice_message, nil)
-     |> assign(:device_warnings, %{})
-     |> load_data()}
+    socket
+    |> assign(:current_view, :calendar)
+    |> assign(:voice_status, :idle)
+    |> assign(:last_voice_message, nil)
+    |> assign(:device_warnings, %{})
+    |> load_data()
   end
 
   defp load_data(socket) do
@@ -225,13 +241,13 @@ defmodule TaskmasterWeb.AppLive do
         {:noreply, socket}
 
       {:error, _changeset} ->
-        {:noreply, assign(socket, :last_voice_message, "Couldn't remember #{name}")}
+        {:noreply, assign(socket, :last_voice_message, "Couldn't save #{name}")}
     end
   end
 
   def handle_info({:forget_grocery_term, name}, socket) do
     Dictionary.forget(name)
-    {:noreply, assign(socket, :last_voice_message, "Forgot #{name}")}
+    {:noreply, assign(socket, :last_voice_message, "Deleted #{name}")}
   end
 
   def handle_info(:events_changed, socket) do

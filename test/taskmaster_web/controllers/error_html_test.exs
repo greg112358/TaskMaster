@@ -1,5 +1,8 @@
+# async: false throughout — SQLite has a single writer, and with
+# `transaction_mode: :immediate` every sandbox owner holds the write lock for
+# the whole test, so two concurrent tests deadlock even when neither writes.
 defmodule TaskmasterWeb.ErrorHTMLTest do
-  use TaskmasterWeb.ConnCase, async: true
+  use TaskmasterWeb.ConnCase, async: false
 
   # Bring render_to_string/4 for testing custom views
   import Phoenix.Template, only: [render_to_string: 4]

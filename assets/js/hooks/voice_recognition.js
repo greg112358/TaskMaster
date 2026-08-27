@@ -122,7 +122,7 @@ const VoiceRecognition = {
     const synth = window.speechSynthesis;
 
     if (!synth) {
-      this.reportSpeechUnavailable("this webview has no speech synthesis");
+      this.reportSpeechUnavailable("no speech synthesis");
       this.unmute();
       return;
     }
@@ -133,7 +133,7 @@ const VoiceRecognition = {
     const voices = await this.voices(synth);
 
     if (voices.length === 0) {
-      this.reportSpeechUnavailable("no text-to-speech voices are installed");
+      this.reportSpeechUnavailable("no text-to-speech voices");
       this.unmute();
       return;
     }
@@ -147,7 +147,7 @@ const VoiceRecognition = {
     utterance.pitch = 1.0;
     utterance.onend = () => this.unmute();
     utterance.onerror = (event) => {
-      this.reportSpeechUnavailable(`speech failed (${event.error})`);
+      this.reportSpeechUnavailable(event.error);
       this.unmute();
     };
 
@@ -174,10 +174,7 @@ const VoiceRecognition = {
 
   reportSpeechUnavailable(reason) {
     console.warn(`Cannot read alerts aloud: ${reason}`);
-    this.pushEvent("device_warning", {
-      key: "speech",
-      message: `can't read alerts aloud: ${reason}`,
-    });
+    this.pushEvent("device_warning", { key: "speech", message: `No audio alerts: ${reason}` });
   },
 
   mute() {

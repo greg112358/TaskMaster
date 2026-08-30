@@ -133,7 +133,7 @@ defmodule TaskmasterWeb.GroceryLive do
 
     ~H"""
     <div>
-      <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center justify-between mb-4">
         <h1 class="text-4xl font-bold">Groceries</h1>
         <button phx-click="clear_groceries" class="btn btn-lg btn-error btn-outline text-xl">
           Clear All
@@ -141,7 +141,7 @@ defmodule TaskmasterWeb.GroceryLive do
       </div>
 
       <%!-- Add item, with suggestions from the dictionary as you type --%>
-      <div class="relative mb-6">
+      <div class="relative mb-4">
         <form
           id="grocery-form"
           phx-change="suggest"
@@ -198,10 +198,10 @@ defmodule TaskmasterWeb.GroceryLive do
       <%!-- Three columns --%>
       <div class="grid grid-cols-3 gap-4">
         <div :for={{category, label, text_class, border_class} <- @category_labels}>
-          <h2 class={"text-2xl font-bold mb-3 border-b-2 pb-2 #{text_class} #{border_class}"}>
+          <h2 class={"text-3xl font-bold mb-2 border-b-2 pb-1 #{text_class} #{border_class}"}>
             {label}
           </h2>
-          <ul class="space-y-2">
+          <ul class="space-y-1">
             <li
               :for={item <- items_for(assigns, category)}
               id={"grocery-item-#{item.id}"}
@@ -212,7 +212,7 @@ defmodule TaskmasterWeb.GroceryLive do
               <button
                 phx-click="toggle_grocery"
                 phx-value-id={item.id}
-                class={"text-2xl cursor-pointer flex-1 text-left py-2 #{text_class} #{if item.checked, do: "line-through opacity-50"}"}
+                class={"text-4xl cursor-pointer flex-1 text-left py-0.5 #{text_class} #{if item.checked, do: "line-through opacity-50"}"}
               >
                 {item.name}
               </button>
@@ -228,7 +228,7 @@ defmodule TaskmasterWeb.GroceryLive do
         </div>
       </div>
 
-      <p class="mt-6 text-base text-base-content/50">Hold to delete word.</p>
+      <p class="mt-4 text-base text-base-content/50">Hold to delete word.</p>
 
       <%!-- "Which list?" — shown when the board does not know the word --%>
       <div

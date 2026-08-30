@@ -40,25 +40,41 @@ defmodule Taskmaster.Grocery do
     end)
   end
 
+  @doc """
+  Ticks or unticks an item. `:error` when the id is stale — two tablets share
+  this list, so a row going out from under a tap is ordinary use, and the tablet
+  that removed it has already broadcast.
+  """
   def toggle_item(id) do
-    item = Repo.get!(Item, id)
+    case Repo.get(Item, id) do
+      nil ->
+        :error
 
-    item
-    |> Item.changeset(%{checked: !item.checked})
-    |> Repo.update()
-    |> tap(fn
-      {:ok, _} -> broadcast()
-      _ -> :ok
-    end)
+      item ->
+        item
+        |> Item.changeset(%{checked: !item.checked})
+        |> Repo.update()
+        |> tap(fn
+          {:ok, _} -> broadcast()
+          _ -> :ok
+        end)
+    end
   end
 
+  @doc "Removes an item. `:error` when the id is stale — see `toggle_item/1`."
   def delete_item(id) do
-    Repo.get!(Item, id)
-    |> Repo.delete()
-    |> tap(fn
-      {:ok, _} -> broadcast()
-      _ -> :ok
-    end)
+    case Repo.get(Item, id) do
+      nil ->
+        :error
+
+      item ->
+        item
+        |> Repo.delete()
+        |> tap(fn
+          {:ok, _} -> broadcast()
+          _ -> :ok
+        end)
+    end
   end
 
   def clear_all do

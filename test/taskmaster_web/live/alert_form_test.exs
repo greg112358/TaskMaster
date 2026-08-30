@@ -65,8 +65,8 @@ defmodule TaskmasterWeb.AlertFormTest do
   describe "the frequency field" do
     defp choose_frequency(view, type) do
       view
-      |> element("#add-event-form select[name='recurrence_type']")
-      |> render_change(%{"recurrence_type" => type})
+      |> form("#add-event-form", %{"recurrence_type" => type})
+      |> render_change()
     end
 
     test "is labelled Frequency", %{conn: conn} do
@@ -153,6 +153,51 @@ defmodule TaskmasterWeb.AlertFormTest do
       html = view |> open_add_form(Date.utc_today()) |> render()
 
       refute html =~ ~s(name="recurrence_interval")
+    end
+  end
+
+  describe "fields already filled in" do
+    test "survive changing the frequency", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
+      open_add_form(view, Date.utc_today())
+
+      view
+      |> form("#add-event-form", %{
+        "title" => "clean cat tree",
+        "type" => "task",
+        "alert" => "true"
+      })
+      |> render_change()
+
+      html = choose_frequency(view, "every_n_weeks")
+
+      assert html =~ ~s(value="clean cat tree")
+      assert html =~ ~s(<option value="task" selected)
+      assert html =~ ~s(name="alert" value="true" checked)
+    end
+
+    test "survive a frequency that hides the interval field again", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
+      open_add_form(view, Date.utc_today())
+
+      view |> form("#add-event-form", %{"title" => "bin day"}) |> render_change()
+      choose_frequency(view, "every_n_days")
+
+      assert choose_frequency(view, "weekly") =~ ~s(value="bin day")
+    end
+
+    test "are cleared when the form is reopened", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/")
+      view = isolate_view(view)
+      open_add_form(view, Date.utc_today())
+      view |> form("#add-event-form", %{"title" => "bin day"}) |> render_change()
+
+      view |> element("button", "Cancel") |> render_click()
+      html = view |> open_add_form(Date.utc_today()) |> render()
+
+      refute html =~ ~s(value="bin day")
     end
   end
 

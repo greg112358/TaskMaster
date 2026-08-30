@@ -11,6 +11,11 @@ config :taskmaster,
   ecto_repos: [Taskmaster.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+# The microphone and speaker half of the board — speech recognition, speech
+# synthesis, the alert chime and the scheduler behind it — behind one flag, off
+# by default. See `Taskmaster.Audio`; TASKMASTER_AUDIO=1 turns it on.
+config :taskmaster, audio: false
+
 # SQLite serialises writers. Without WAL, a reader arriving mid-write fails
 # outright with "database is locked" — which showed up at boot, when the
 # connection pool opens alongside the embedded migrations. WAL lets readers run

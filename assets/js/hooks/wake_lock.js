@@ -60,9 +60,11 @@ const WakeLock = {
     window.addEventListener("pointerdown", this._onTouch, { once: true, passive: true });
   },
 
-  warn(message) {
-    console.warn(`Wake lock: ${message}`);
-    this.pushEvent("device_warning", { key: "wake_lock", message: `Screen may sleep: ${message}` });
+  // `<api>: <reason>` — a wall board has no console, so the API name is the
+  // actionable half. See the `deslop` skill.
+  warn(reason) {
+    console.warn(`wakeLock: ${reason}`);
+    this.pushEvent("device_warning", { key: "wake_lock", message: `wakeLock: ${reason}` });
   },
 
   clearWarning() {

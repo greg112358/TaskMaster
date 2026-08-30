@@ -46,15 +46,23 @@ defmodule Taskmaster.Events.Recurrence do
     shift_months(current, 12)
   end
 
-  defp next_date(%Event{recurrence_type: "every_n_days", recurrence_interval: n}, current) do
+  # `occurrences_in_range/3` and `next_occurrence_from/2` both stream until the
+  # date passes the end of the range, so they terminate only while `next_date/2`
+  # strictly advances. An interval of zero or less never advances and the stream
+  # runs forever — the guards turn that into a FunctionClauseError instead, which
+  # is recoverable. `Event.changeset/2` is what stops such a row being written.
+  defp next_date(%Event{recurrence_type: "every_n_days", recurrence_interval: n}, current)
+       when is_integer(n) and n > 0 do
     Date.add(current, n)
   end
 
-  defp next_date(%Event{recurrence_type: "every_n_weeks", recurrence_interval: n}, current) do
+  defp next_date(%Event{recurrence_type: "every_n_weeks", recurrence_interval: n}, current)
+       when is_integer(n) and n > 0 do
     Date.add(current, 7 * n)
   end
 
-  defp next_date(%Event{recurrence_type: "every_n_months", recurrence_interval: n}, current) do
+  defp next_date(%Event{recurrence_type: "every_n_months", recurrence_interval: n}, current)
+       when is_integer(n) and n > 0 do
     shift_months(current, n)
   end
 

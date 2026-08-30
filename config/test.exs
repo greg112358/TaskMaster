@@ -33,9 +33,15 @@ config :phoenix,
 
 # No wx desktop window during tests, and no background alert polling (tests
 # drive Taskmaster.Events.Alerts directly, or start their own scheduler).
+#
+# `audio: true` deviates from the shipped default, which is off: the suite
+# covers the voice and alert features, so it runs with them on. The tests for
+# the flag itself (test/taskmaster_web/live/audio_flag_test.exs) put it back to
+# false around themselves.
 config :taskmaster,
   desktop_window: false,
-  alert_scheduler: false
+  alert_scheduler: false,
+  audio: true
 
 # A fixture rather than the real credentials.txt, so the suite neither depends
 # on nor reads the developer's own login.

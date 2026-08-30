@@ -14,7 +14,22 @@ defmodule TaskmasterWeb.CalendarLive do
      |> assign(:view_mode, :month)
      |> assign(:show_add_form, false)
      |> assign(:add_form_date, nil)
-     |> assign(:recurrence_type, nil)}
+     |> assign(:form, blank_form())}
+  end
+
+  # Every field is rendered from here rather than left to live in the DOM.
+  # Without that, any re-render — changing Frequency shows or hides the interval
+  # field — can patch over an input whose value the server never knew about, and
+  # a half-typed title disappears.
+  defp blank_form do
+    %{
+      "title" => "",
+      "type" => "event",
+      "person_id" => "",
+      "recurrence_type" => "",
+      "recurrence_interval" => "1",
+      "alert" => "false"
+    }
   end
 
   @impl true
@@ -48,6 +63,7 @@ defmodule TaskmasterWeb.CalendarLive do
      socket
      |> assign(:events, assigns.events)
      |> assign(:people, assigns.people)
+     |> assign(:audio, assigns.audio)
      |> assign(:id, assigns.id)}
   end
 
@@ -161,7 +177,7 @@ defmodule TaskmasterWeb.CalendarLive do
             class={"text-xs px-1 rounded mb-0.5 truncate
             #{if event.type == "task", do: "bg-warning/30 text-warning-content", else: "bg-info/30 text-info-content"}"}
           >
-            <span :if={event.alert} title="Chimes and reads aloud">&#128276;</span>{event.title}
+            <span :if={@audio and event.alert} title="Chimes and reads aloud">&#128276;</span>{event.title}
           </div>
         </div>
       </div>
@@ -183,7 +199,7 @@ defmodule TaskmasterWeb.CalendarLive do
             #{if event.type == "task", do: "bg-warning/30", else: "bg-info/30"}"}
           >
             <div class="font-semibold">
-              <span :if={event.alert} title="Chimes and reads aloud">&#128276;</span>{event.title}
+              <span :if={@audio and event.alert} title="Chimes and reads aloud">&#128276;</span>{event.title}
             </div>
             <div :if={event.person} class="text-sm text-base-content/60">{event.person.name}</div>
           </div>
@@ -197,7 +213,12 @@ defmodule TaskmasterWeb.CalendarLive do
       >
         <div class="bg-base-100 rounded-lg p-6 w-full max-w-lg shadow-xl">
           <h2 class="text-3xl font-bold mb-4">Add Event / Task</h2>
-          <form id="add-event-form" phx-submit="add_event" phx-target={@myself}>
+          <form
+            id="add-event-form"
+            phx-change="form_changed"
+            phx-submit="add_event"
+            phx-target={@myself}
+          >
             <input type="hidden" name="start_date" value={@add_form_date} />
 
             <div class="mb-3">
@@ -205,67 +226,83 @@ defmodule TaskmasterWeb.CalendarLive do
               <input
                 type="text"
                 name="title"
+                value={@form["title"]}
                 class="input input-lg input-bordered w-full text-xl"
                 required
                 autofocus
+                phx-debounce="250"
               />
             </div>
 
             <div class="mb-3">
               <label class="label text-xl">Type</label>
               <select name="type" class="select select-lg select-bordered w-full text-xl">
-                <option value="event">Event</option>
-                <option value="task">Task / Chore</option>
+                <option value="event" selected={@form["type"] == "event"}>Event</option>
+                <option value="task" selected={@form["type"] == "task"}>Task / Chore</option>
               </select>
             </div>
 
             <div class="mb-3">
               <label class="label text-xl">Assign To</label>
               <select name="person_id" class="select select-lg select-bordered w-full text-xl">
-                <option value="">Nobody</option>
-                <option :for={p <- @people} value={p.id}>{p.name}</option>
+                <option value="" selected={@form["person_id"] == ""}>Nobody</option>
+                <option
+                  :for={p <- @people}
+                  value={p.id}
+                  selected={@form["person_id"] == to_string(p.id)}
+                >
+                  {p.name}
+                </option>
               </select>
             </div>
 
             <div class="mb-3">
               <label class="label text-xl">Frequency</label>
-              <select
-                name="recurrence_type"
-                phx-change="recurrence_changed"
-                phx-target={@myself}
-                class="select select-lg select-bordered w-full text-xl"
-              >
-                <option value="">One time</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="yearly">Yearly</option>
-                <option value="every_n_days">Every N days</option>
-                <option value="every_n_weeks">Every N weeks</option>
-                <option value="every_n_months">Every N months</option>
+              <select name="recurrence_type" class="select select-lg select-bordered w-full text-xl">
+                <option
+                  :for={
+                    {value, label} <- [
+                      {"", "One time"},
+                      {"daily", "Daily"},
+                      {"weekly", "Weekly"},
+                      {"monthly", "Monthly"},
+                      {"yearly", "Yearly"},
+                      {"every_n_days", "Every N days"},
+                      {"every_n_weeks", "Every N weeks"},
+                      {"every_n_months", "Every N months"}
+                    ]
+                  }
+                  value={value}
+                  selected={@form["recurrence_type"] == value}
+                >
+                  {label}
+                </option>
               </select>
             </div>
 
-            <div :if={interval_unit(@recurrence_type)} class="mb-3">
-              <label class="label text-xl">{interval_unit(@recurrence_type)}</label>
+            <div :if={interval_unit(@form["recurrence_type"])} class="mb-3">
+              <label class="label text-xl">{interval_unit(@form["recurrence_type"])}</label>
               <input
                 type="number"
                 name="recurrence_interval"
-                value="1"
+                value={@form["recurrence_interval"]}
                 min="1"
                 class="input input-lg input-bordered w-full text-xl"
               />
             </div>
 
             <%!-- Alert. The hidden input makes an unchecked box send "false"
-                  instead of sending nothing at all. --%>
-            <div class="mb-3 flex items-center gap-3">
+                  instead of sending nothing at all. The whole block goes
+                  with audio off, so the form sends no `alert` key and every
+                  new event saves with alert=false. --%>
+            <div :if={@audio} class="mb-3 flex items-center gap-3">
               <label class="label cursor-pointer justify-start gap-3 text-xl flex-1">
                 <input type="hidden" name="alert" value="false" />
                 <input
                   type="checkbox"
                   name="alert"
                   value="true"
+                  checked={@form["alert"] == "true"}
                   class="checkbox checkbox-lg checkbox-primary"
                 />
                 <span>&#128276; Chime and read aloud</span>
@@ -303,13 +340,13 @@ defmodule TaskmasterWeb.CalendarLive do
      socket
      |> assign(:show_add_form, true)
      |> assign(:add_form_date, date)
-     |> assign(:recurrence_type, nil)}
+     |> assign(:form, blank_form())}
   end
 
-  # Lives on the select rather than the form so typing a title does not round
-  # trip on every keystroke.
-  def handle_event("recurrence_changed", %{"recurrence_type" => type}, socket) do
-    {:noreply, assign(socket, :recurrence_type, type)}
+  # Form-level, so a change to any one field carries the rest with it and the
+  # server always holds what is on screen.
+  def handle_event("form_changed", params, socket) do
+    {:noreply, assign(socket, :form, Map.merge(socket.assigns.form, form_fields(params)))}
   end
 
   def handle_event("close_form", _params, socket) do
@@ -320,5 +357,13 @@ defmodule TaskmasterWeb.CalendarLive do
     send(self(), {:add_event_from_form, params})
 
     {:noreply, assign(socket, :show_add_form, false)}
+  end
+
+  # Ignore anything not part of the form, and drop absent keys so a hidden
+  # interval field does not wipe the value it had.
+  defp form_fields(params) do
+    params
+    |> Map.take(Map.keys(blank_form()))
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
   end
 end

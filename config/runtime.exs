@@ -23,6 +23,13 @@ if config_env() == :prod do
     secret_key_base: secret_key_base
 end
 
+# The audio/mic half of the board is off by default (see `Taskmaster.Audio`).
+# An env var rather than a config edit, so a release can be flipped without a
+# rebuild.
+if audio = System.get_env("TASKMASTER_AUDIO") do
+  config :taskmaster, audio: audio in ~w(1 true yes)
+end
+
 if database = System.get_env("TASKMASTER_DB") do
   config :taskmaster, Taskmaster.Repo, database: database
 end

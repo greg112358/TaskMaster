@@ -1,10 +1,11 @@
 defmodule TaskmasterWeb.AppLive do
   use TaskmasterWeb, :live_view
 
-  alias Taskmaster.{People, Grocery, Events}
+  alias Taskmaster.{Audio, People, Grocery, Events}
   alias Taskmaster.Events.Alerts
   alias Taskmaster.Grocery.Dictionary
   alias Taskmaster.Voice.Parser
+  alias TaskmasterWeb.CoreComponents
 
   @impl true
   def mount(_params, session, socket) do
@@ -25,19 +26,29 @@ defmodule TaskmasterWeb.AppLive do
   end
 
   defp mount_board(socket) do
+    audio? = Audio.enabled?()
+
     if connected?(socket) do
       People.subscribe()
       Grocery.subscribe()
       Events.subscribe()
-      Alerts.subscribe()
+      # Nothing fires on this topic with audio off, and nothing on the page
+      # could sound it if it did.
+      if audio?, do: Alerts.subscribe()
       Dictionary.subscribe()
     end
 
     socket
+    # The microphone/speaker half of the board, off by default. Read once at
+    # mount and passed down, so one session renders one way throughout.
+    |> assign(:audio, audio?)
     |> assign(:current_view, :calendar)
     |> assign(:voice_status, :idle)
     |> assign(:last_voice_message, nil)
     |> assign(:device_warnings, %{})
+    # The half-typed name in Settings. Held here rather than in the DOM, where
+    # the next patch would wipe it.
+    |> assign(:new_person_name, "")
     |> load_data()
   end
 
@@ -60,20 +71,20 @@ defmodule TaskmasterWeb.AppLive do
         {:noreply,
          socket
          |> assign(:current_view, view)
-         |> assign(:last_voice_message, "Showing #{view}")}
+         |> assign(:last_voice_message, "View: #{view}")}
 
       {:add_grocery, item_name} ->
         case Grocery.add_item(item_name) do
-          {:ok, _item} ->
-            {:noreply, assign(socket, :last_voice_message, "Added #{item_name}")}
+          {:ok, item} ->
+            {:noreply, assign(socket, :last_voice_message, "Added item: #{item.name}")}
 
-          _ ->
-            {:noreply, assign(socket, :last_voice_message, "Couldn't add #{item_name}")}
+          {:error, changeset} ->
+            {:noreply, assign(socket, :last_voice_message, error_message(changeset))}
         end
 
       :clear_groceries ->
         Grocery.clear_all()
-        {:noreply, assign(socket, :last_voice_message, "Groceries cleared")}
+        {:noreply, assign(socket, :last_voice_message, "Cleared groceries")}
 
       {:add_task, details} ->
         handle_add_task(details, socket)
@@ -85,7 +96,7 @@ defmodule TaskmasterWeb.AppLive do
         {:noreply,
          socket
          |> assign(:last_voice_message, "I missed that")
-         |> push_event("speak", %{text: "I missed that"})}
+         |> speak("I missed that")}
     end
   end
 
@@ -125,12 +136,12 @@ defmodule TaskmasterWeb.AppLive do
   end
 
   def handle_event("toggle_grocery", %{"id" => id}, socket) do
-    Grocery.toggle_item(String.to_integer(id))
+    with_id(id, &Grocery.toggle_item/1)
     {:noreply, socket}
   end
 
   def handle_event("delete_grocery", %{"id" => id}, socket) do
-    Grocery.delete_item(String.to_integer(id))
+    with_id(id, &Grocery.delete_item/1)
     {:noreply, socket}
   end
 
@@ -147,44 +158,79 @@ defmodule TaskmasterWeb.AppLive do
   end
 
   # People events
-  def handle_event("add_person", %{"name" => name}, socket) do
-    if String.trim(name) != "" do
-      People.create_person(%{name: String.trim(name)})
-    end
+  def handle_event("person_form_changed", %{"name" => name}, socket) do
+    {:noreply, assign(socket, :new_person_name, name)}
+  end
 
-    {:noreply, socket}
+  def handle_event("add_person", %{"name" => name}, socket) do
+    case String.trim(name) do
+      "" ->
+        {:noreply, socket}
+
+      trimmed ->
+        case People.create_person(%{name: trimmed}) do
+          {:ok, _person} ->
+            {:noreply, assign(socket, :new_person_name, "")}
+
+          {:error, changeset} ->
+            # Keep what was typed, so the name can be corrected rather than
+            # retyped.
+            {:noreply, assign(socket, :last_voice_message, error_message(changeset))}
+        end
+    end
   end
 
   def handle_event("delete_person", %{"id" => id}, socket) do
-    person = People.get_person!(String.to_integer(id))
-    People.delete_person(person)
+    with_id(id, fn id ->
+      case People.get_person(id) do
+        nil -> :error
+        person -> People.delete_person(person)
+      end
+    end)
+
     {:noreply, socket}
   end
 
   # Event/Task creation
   def handle_event("add_event", params, socket) do
-    attrs = %{
-      title: params["title"],
-      type: params["type"] || "event",
-      start_date: Date.from_iso8601!(params["start_date"]),
-      person_id: parse_person_id(params["person_id"]),
-      recurrence_type: blank_to_nil(params["recurrence_type"]),
-      recurrence_interval: parse_int(params["recurrence_interval"]),
-      recurrence_day_of_week: parse_int(params["recurrence_day_of_week"]),
-      alert: params["alert"] == "true"
-    }
+    case Date.from_iso8601(to_string(params["start_date"])) do
+      {:ok, start_date} ->
+        attrs = %{
+          title: params["title"],
+          type: params["type"] || "event",
+          start_date: start_date,
+          person_id: parse_int(params["person_id"]),
+          recurrence_type: blank_to_nil(params["recurrence_type"]),
+          recurrence_interval: parse_int(params["recurrence_interval"]),
+          recurrence_day_of_week: parse_int(params["recurrence_day_of_week"]),
+          alert: params["alert"] == "true"
+        }
 
-    Events.create_event(attrs)
-    {:noreply, socket}
+        case Events.create_event(attrs) do
+          {:ok, _event} ->
+            {:noreply, socket}
+
+          {:error, changeset} ->
+            {:noreply, assign(socket, :last_voice_message, error_message(changeset))}
+        end
+
+      {:error, _reason} ->
+        {:noreply,
+         assign(
+           socket,
+           :last_voice_message,
+           "Invalid field: start_date=#{inspect(params["start_date"])} (not a date)"
+         )}
+    end
   end
 
   def handle_event("mark_done", %{"id" => id}, socket) do
-    Events.mark_done(String.to_integer(id))
+    with_id(id, &Events.mark_done/1)
     {:noreply, socket}
   end
 
   def handle_event("delete_event", %{"id" => id}, socket) do
-    Events.delete_event(String.to_integer(id))
+    with_id(id, &Events.delete_event/1)
     {:noreply, socket}
   end
 
@@ -240,14 +286,14 @@ defmodule TaskmasterWeb.AppLive do
         Grocery.add_item(term.name, category)
         {:noreply, socket}
 
-      {:error, _changeset} ->
-        {:noreply, assign(socket, :last_voice_message, "Couldn't save #{name}")}
+      {:error, changeset} ->
+        {:noreply, assign(socket, :last_voice_message, error_message(changeset))}
     end
   end
 
   def handle_info({:forget_grocery_term, name}, socket) do
     Dictionary.forget(name)
-    {:noreply, assign(socket, :last_voice_message, "Deleted #{name}")}
+    {:noreply, assign(socket, :last_voice_message, "Deleted term: #{name}")}
   end
 
   def handle_info(:events_changed, socket) do
@@ -267,6 +313,13 @@ defmodule TaskmasterWeb.AppLive do
      |> push_event("alert", payload)}
   end
 
+  # Speech out. With audio off there is no VoiceRecognition hook on the page to
+  # receive this, so it is not pushed; the same text is already in the status
+  # bar either way.
+  defp speak(socket, text) do
+    if socket.assigns.audio, do: push_event(socket, "speak", %{text: text}), else: socket
+  end
+
   # Voice task handling
   defp handle_add_task(details, socket) do
     person =
@@ -277,8 +330,8 @@ defmodule TaskmasterWeb.AppLive do
     if details.person_name && is_nil(person) do
       {:noreply,
        socket
-       |> assign(:last_voice_message, "I don't know #{details.person_name}")
-       |> push_event("speak", %{text: "I don't know #{details.person_name}"})}
+       |> assign(:last_voice_message, "Unknown person: #{details.person_name}")
+       |> speak("Unknown person: #{details.person_name}")}
     else
       attrs = %{
         title: details.title,
@@ -291,16 +344,16 @@ defmodule TaskmasterWeb.AppLive do
       }
 
       case Events.create_event(attrs) do
-        {:ok, _} ->
+        {:ok, event} ->
           msg =
             if person,
-              do: "Added task #{details.title} for #{person.name}",
-              else: "Added task #{details.title}"
+              do: "Added task: #{event.title} (#{person.name})",
+              else: "Added task: #{event.title}"
 
           {:noreply, assign(socket, :last_voice_message, msg)}
 
-        _ ->
-          {:noreply, assign(socket, :last_voice_message, "Couldn't add that task")}
+        {:error, changeset} ->
+          {:noreply, assign(socket, :last_voice_message, error_message(changeset))}
       end
     end
   end
@@ -316,26 +369,64 @@ defmodule TaskmasterWeb.AppLive do
     }
 
     case Events.create_event(attrs) do
-      {:ok, _} ->
-        {:noreply, assign(socket, :last_voice_message, "Added event #{details.title}")}
+      {:ok, event} ->
+        {:noreply, assign(socket, :last_voice_message, "Added event: #{event.title}")}
 
-      _ ->
-        {:noreply, assign(socket, :last_voice_message, "Couldn't add that event")}
+      {:error, changeset} ->
+        {:noreply, assign(socket, :last_voice_message, error_message(changeset))}
     end
   end
 
-  defp parse_person_id(""), do: nil
-  defp parse_person_id(nil), do: nil
-  defp parse_person_id(id), do: String.to_integer(id)
+  # Ids arrive from the client in `phx-value-id`, so they can be stale — two
+  # tablets share this board, and a double-tap outruns the re-render — or simply
+  # not a number. None of that is worth crashing the view for: the row is already
+  # gone, and whoever removed it has broadcast.
+  defp with_id(id, fun) do
+    case parse_int(id) do
+      nil -> :error
+      id -> fun.(id)
+    end
+  end
 
   defp parse_int(nil), do: nil
-  defp parse_int(""), do: nil
-  defp parse_int(val) when is_binary(val), do: String.to_integer(val)
   defp parse_int(val) when is_integer(val), do: val
+
+  defp parse_int(val) when is_binary(val) do
+    case Integer.parse(val) do
+      {int, ""} -> int
+      _ -> nil
+    end
+  end
 
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(val), do: val
+
+  # The status bar is the only voice the board has, so a rejected write names the
+  # field and the value that was rejected. Without this a bad save is
+  # indistinguishable from one that worked and changed nothing — and "couldn't
+  # save that" is no more useful than silence. Format is fixed by the `deslop`
+  # skill.
+  defp error_message(%Ecto.Changeset{errors: [{field, error} | _]} = changeset) do
+    case CoreComponents.translate_error(error) do
+      "can't be blank" ->
+        "Missing field: #{field}"
+
+      constraint ->
+        "Invalid field: #{field}=#{inspect(rejected_value(changeset, field))} (#{constraint})"
+    end
+  end
+
+  defp error_message(%Ecto.Changeset{}), do: "Write rejected"
+
+  # What was typed, not what it cast to — a value that failed to cast has no
+  # entry in `changes` at all.
+  defp rejected_value(changeset, field) do
+    case Map.fetch(changeset.params || %{}, to_string(field)) do
+      {:ok, value} -> value
+      :error -> Ecto.Changeset.get_field(changeset, field)
+    end
+  end
 
   defp voice_hints(:calendar) do
     [
@@ -368,14 +459,26 @@ defmodule TaskmasterWeb.AppLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div id="app-root" phx-hook="VoiceRecognition" class="flex flex-col h-screen">
+    <%!-- No phx-hook with audio off: the hook is what constructs the
+          SpeechRecognition, the AudioContext and the speech synthesiser, so
+          leaving it off is what keeps the board silent and never asks for the
+          microphone. --%>
+    <div
+      id="app-root"
+      phx-hook={if @audio, do: "VoiceRecognition"}
+      class="flex flex-col h-screen"
+    >
       <%!-- Keeps the screen awake. Its own element because an element carries
             only one phx-hook. --%>
       <div id="wake-lock" phx-hook="WakeLock" class="hidden"></div>
 
-      <%!-- Voice hint bar --%>
-      <div class="bg-base-200 px-4 py-2 flex items-center justify-between text-sm">
-        <div class="flex items-center gap-2">
+      <%!-- Status bar. The voice half of it only when audio is on; device
+            warnings and write errors are shown either way. --%>
+      <div class={[
+        "bg-base-200 px-4 py-2 flex items-center text-sm",
+        if(@audio, do: "justify-between", else: "justify-end")
+      ]}>
+        <div :if={@audio} class="flex items-center gap-2">
           <span class={"inline-block w-3 h-3 rounded-full #{if @voice_status == :listening, do: "bg-success animate-pulse", else: "bg-error"}"}>
           </span>
           <span class="text-base-content/60">
@@ -407,6 +510,7 @@ defmodule TaskmasterWeb.AppLive do
             id="calendar"
             events={@events}
             people={@people}
+            audio={@audio}
           />
         </div>
         <div :if={@current_view == :groceries}>
@@ -421,6 +525,7 @@ defmodule TaskmasterWeb.AppLive do
             module={TaskmasterWeb.ChoreListLive}
             id="chores"
             tasks={@tasks}
+            audio={@audio}
           />
         </div>
         <div :if={@current_view == :settings}>
@@ -428,6 +533,7 @@ defmodule TaskmasterWeb.AppLive do
             module={TaskmasterWeb.SettingsLive}
             id="settings"
             people={@people}
+            new_person_name={@new_person_name}
           />
         </div>
       </main>

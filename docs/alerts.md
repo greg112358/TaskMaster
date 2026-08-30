@@ -7,6 +7,14 @@ two-note chime, then the title read out by the speech synthesiser.
 This document covers how that works end to end, what its timing guarantees are
 (and are not), and where to hook in if you are extending it.
 
+> **Alerts are off by default.** They are audio, so they sit behind the
+> `Taskmaster.Audio` flag along with voice commands and read-aloud. With it off
+> the `AlertScheduler` is never started, the checkbox and its Test button are
+> not rendered, and the 🔔 markers are hidden — an existing `alert: true` row
+> stays in the database, dormant, and starts announcing again the moment the
+> flag comes back on. Set `TASKMASTER_AUDIO=1` (or `config :taskmaster, audio:
+> true`) to turn it on; everything below describes the flag-on behaviour.
+
 ---
 
 ## User-facing behaviour

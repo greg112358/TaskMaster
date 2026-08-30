@@ -44,6 +44,8 @@ The router has exactly one route: `live "/", AppLive`. `TaskmasterWeb.AppLive` o
 
 Every write in `Taskmaster.People` / `Grocery` / `Events` ends with `tap(fn {:ok, _} -> broadcast() ...)` on its own PubSub topic. `AppLive` subscribes to all of them in `mount/3` and re-runs the list query when the message arrives.
 
+Writes taking an id (`toggle_item/1`, `delete_item/1`, `mark_done/1`, `delete_event/1`) use `Repo.get/2` and answer `:error` for a row that has gone: two tablets share this board, so a row disappearing under a tap is ordinary use, not a crash. `AppLive.with_id/2` is the matching parse.
+
 So: **write through the context and let the broadcast update the UI.** Don't `assign/3` changed records directly — you'll desync any other subscriber (including the alert scheduler).
 
 ### Recurrence is computed, never materialized
@@ -52,7 +54,35 @@ An event is one row holding a rule (`recurrence_type` + `recurrence_interval` + 
 
 Two things to know: it iterates from `start_date` each call, so a long-running daily rule costs one step per elapsed day; and `next_date/2` has no fallback clause, so an unrecognised `recurrence_type` raises rather than being ignored.
 
+The streams terminate **only while `next_date/2` strictly advances**, so `Event.changeset/2` validates `recurrence_type` against `Event.recurrence_types/0` and requires a positive `recurrence_interval` for the `every_n_*` rules; the `every_n_*` heads carry `n > 0` guards as well. An interval of zero once meant an endless stream on every render — a board that could not be recovered from its own screen. Any new rule has to advance.
+
 Everything is **dates, no times, no timezones** — `Date.utc_today()` throughout.
+
+### Audio and mic are behind one flag, and it is off
+
+`Taskmaster.Audio.enabled?/0` gates **everything that uses the microphone or the
+speakers** — speech recognition, speech synthesis, the alert chime, and the
+`AlertScheduler` that drives it. It reads `config :taskmaster, :audio`, which
+`config/config.exs` sets to `false`; `TASKMASTER_AUDIO=1` turns it back on
+without a rebuild. The test env sets `audio: true` so the suite keeps covering
+those features.
+
+The gate is applied in four places, and a new audio feature needs the same
+treatment:
+
+- `Application.start/2` — no `AlertScheduler` child.
+- `AppLive.mount/3` — reads it once into `@audio`, skips `Alerts.subscribe()`,
+  and passes `audio={@audio}` to `CalendarLive` and `ChoreListLive`.
+- `AppLive.render/1` — `phx-hook="VoiceRecognition"` is **not emitted**. That is
+  the load-bearing half: the hook is what constructs the `SpeechRecognition`,
+  the `AudioContext` and the utterances, so with no hook the page never asks for
+  the microphone and cannot make a sound. The voice hint bar goes with it.
+- The alert UI — the checkbox, its Test button and the 🔔 markers are `:if={@audio}`.
+
+Speech out goes through `AppLive.speak/2`, which pushes nothing when the flag is
+off. Nothing was deleted: the `alert` column, `Parser`, `chime.js` and the hook
+are all still there, and the sections below describe them as they behave with
+the flag on.
 
 ### Voice
 
@@ -123,6 +153,27 @@ Two test-only deviations, both load-bearing: `journal_mode: :delete`, and `pool_
 **LiveView tests must call `isolate_view/1`** (in `ConnCase`) on every mounted view. `live/2` links the view to the test process, so it dies exactly as the test ends and a message still in flight can write while the *next* test owns the connection — an intermittent "Database busy" in an unrelated test. `isolate_view/1` unlinks and stops it synchronously in an `on_exit` that LIFO puts before the sandbox's.
 
 Tests touching the dictionary must also let its PubSub round trip drain before asserting on the DOM — see `settle/1` in `grocery_dictionary_test.exs`.
+
+## Copy
+
+Every user-facing string — status bar, errors, labels, empty states, device
+warnings — follows the `deslop` skill (`.claude/skills/deslop/`): terse,
+technical, no fluff, name the field and the value. Rejected writes go through
+`AppLive.error_message/1`, which renders `Invalid field: name="Greg" (has already
+been taken)` or `Missing field: title`; device warnings name the web API
+(`wakeLock: needs https`). Read it before adding a string.
+
+The two deliberate exceptions are `I missed that` for unparsed speech, which
+`requirements.md` mandates, and `Alerts.announcement/1`, which is spoken to a
+family rather than read off a screen.
+
+## Known failure patterns
+
+Nine patterns that have already produced bugs here — DOM-only form state,
+non-terminating recurrence streams, raising conversions on client input, broadcast
+feedback loops — with a running list of every instance found and its status. In the
+`bug-patterns` skill (`.claude/skills/bug-patterns/`). Read it before fixing a bug
+or reviewing a diff, and append to `findings.md` when you find or fix one.
 
 ## Stack notes
 

@@ -63,6 +63,7 @@ defmodule TaskmasterWeb.CalendarLive do
      socket
      |> assign(:events, assigns.events)
      |> assign(:people, assigns.people)
+     |> assign(:audio, assigns.audio)
      |> assign(:id, assigns.id)}
   end
 
@@ -176,7 +177,7 @@ defmodule TaskmasterWeb.CalendarLive do
             class={"text-xs px-1 rounded mb-0.5 truncate
             #{if event.type == "task", do: "bg-warning/30 text-warning-content", else: "bg-info/30 text-info-content"}"}
           >
-            <span :if={event.alert} title="Chimes and reads aloud">&#128276;</span>{event.title}
+            <span :if={@audio and event.alert} title="Chimes and reads aloud">&#128276;</span>{event.title}
           </div>
         </div>
       </div>
@@ -198,7 +199,7 @@ defmodule TaskmasterWeb.CalendarLive do
             #{if event.type == "task", do: "bg-warning/30", else: "bg-info/30"}"}
           >
             <div class="font-semibold">
-              <span :if={event.alert} title="Chimes and reads aloud">&#128276;</span>{event.title}
+              <span :if={@audio and event.alert} title="Chimes and reads aloud">&#128276;</span>{event.title}
             </div>
             <div :if={event.person} class="text-sm text-base-content/60">{event.person.name}</div>
           </div>
@@ -291,8 +292,10 @@ defmodule TaskmasterWeb.CalendarLive do
             </div>
 
             <%!-- Alert. The hidden input makes an unchecked box send "false"
-                  instead of sending nothing at all. --%>
-            <div class="mb-3 flex items-center gap-3">
+                  instead of sending nothing at all. The whole block goes
+                  with audio off, so the form sends no `alert` key and every
+                  new event saves with alert=false. --%>
+            <div :if={@audio} class="mb-3 flex items-center gap-3">
               <label class="label cursor-pointer justify-start gap-3 text-xl flex-1">
                 <input type="hidden" name="alert" value="false" />
                 <input

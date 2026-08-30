@@ -44,7 +44,7 @@ defmodule TaskmasterWeb.ChoreListLive do
       <h1 class="text-4xl font-bold mb-6">Chores</h1>
 
       <div :if={@tasks == []} class="text-2xl text-base-content/50 text-center py-12">
-        No chores
+        None
       </div>
 
       <div class="overflow-x-auto">
@@ -62,7 +62,7 @@ defmodule TaskmasterWeb.ChoreListLive do
           <tbody>
             <tr :for={task <- @tasks} class="text-xl">
               <td class="font-semibold text-2xl">
-                <span :if={task.alert} title="Chimes and reads aloud">&#128276;</span>{task.title}
+                <span :if={@audio and task.alert} title="Chimes and reads aloud">&#128276;</span>{task.title}
               </td>
               <td>{if task.person, do: task.person.name, else: "-"}</td>
               <td>{recurrence_label(task.recurrence_type, task.recurrence_interval)}</td>

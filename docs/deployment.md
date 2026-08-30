@@ -28,6 +28,7 @@ uses to keep wx out of the way.
 | `PORT` | `4000` | HTTP port |
 | `TASKMASTER_HOST` | `localhost` | hostname used in generated URLs |
 | `TASKMASTER_DB` | `~/.config/taskmaster/taskmaster.db` | SQLite file |
+| `TASKMASTER_AUDIO` | unset (off) | `1` to enable the microphone/speaker features — voice commands, read-aloud, alert chime. See `Taskmaster.Audio`. |
 | `SECRET_KEY_BASE` | random each boot | set it, or sessions drop on restart |
 
 `check_origin` is **off** in web mode, because the tablet connects by LAN

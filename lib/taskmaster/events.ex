@@ -39,25 +39,40 @@ defmodule Taskmaster.Events do
     end)
   end
 
+  @doc """
+  Records a chore as done. `:error` when the id is stale — a double-tap, or the
+  other tablet having deleted the row first, is not worth crashing the board for.
+  """
   def mark_done(id) do
-    event = Repo.get!(Event, id)
+    case Repo.get(Event, id) do
+      nil ->
+        :error
 
-    event
-    |> Event.changeset(%{last_completed_at: NaiveDateTime.utc_now()})
-    |> Repo.update()
-    |> tap(fn
-      {:ok, _} -> broadcast()
-      _ -> :ok
-    end)
+      event ->
+        event
+        |> Event.changeset(%{last_completed_at: NaiveDateTime.utc_now()})
+        |> Repo.update()
+        |> tap(fn
+          {:ok, _} -> broadcast()
+          _ -> :ok
+        end)
+    end
   end
 
+  @doc "Removes an event or chore. `:error` when the id is stale — see `mark_done/1`."
   def delete_event(id) do
-    Repo.get!(Event, id)
-    |> Repo.delete()
-    |> tap(fn
-      {:ok, _} -> broadcast()
-      _ -> :ok
-    end)
+    case Repo.get(Event, id) do
+      nil ->
+        :error
+
+      event ->
+        event
+        |> Repo.delete()
+        |> tap(fn
+          {:ok, _} -> broadcast()
+          _ -> :ok
+        end)
+    end
   end
 
   def events_in_range(range_start, range_end) do

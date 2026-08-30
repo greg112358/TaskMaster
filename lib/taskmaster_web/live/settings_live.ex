@@ -1,4 +1,13 @@
 defmodule TaskmasterWeb.SettingsLive do
+  @moduledoc """
+  Family members.
+
+  Presentational, like `ChoreListLive`: no `handle_event` of its own, so every
+  click and change bubbles to `AppLive`, which also holds the half-typed name.
+  It has to — an input LiveView renders without a `value` exists only in the DOM,
+  and the next patch wipes it (see the `bug-patterns` skill, P1).
+  """
+
   use TaskmasterWeb, :live_component
 
   @impl true
@@ -6,7 +15,8 @@ defmodule TaskmasterWeb.SettingsLive do
     {:ok,
      socket
      |> assign(:id, assigns.id)
-     |> assign(:people, assigns.people)}
+     |> assign(:people, assigns.people)
+     |> assign(:new_person_name, assigns.new_person_name)}
   end
 
   @impl true
@@ -15,19 +25,26 @@ defmodule TaskmasterWeb.SettingsLive do
     <div>
       <h1 class="text-4xl font-bold mb-6">Family Members</h1>
 
-      <form phx-submit="add_person" class="flex gap-3 mb-6">
+      <form
+        id="add-person-form"
+        phx-change="person_form_changed"
+        phx-submit="add_person"
+        class="flex gap-3 mb-6"
+      >
         <input
           type="text"
           name="name"
+          value={@new_person_name}
           placeholder="Add person..."
           class="input input-lg input-bordered flex-1 text-2xl"
           autocomplete="off"
+          phx-debounce="250"
         />
         <button type="submit" class="btn btn-lg btn-primary text-xl">Add</button>
       </form>
 
       <div :if={@people == []} class="text-2xl text-base-content/50 text-center py-12">
-        No family members added yet.
+        None
       </div>
 
       <ul class="space-y-3">

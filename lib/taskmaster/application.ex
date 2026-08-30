@@ -33,8 +33,10 @@ defmodule Taskmaster.Application do
     Taskmaster.Repo.Migrator.run()
 
     # The alert scheduler queries the events table, so it is started as a child
-    # only after the embedded migrations above have run.
-    if Application.get_env(:taskmaster, :alert_scheduler, true) do
+    # only after the embedded migrations above have run. It exists to produce a
+    # chime and a read-aloud, so with audio off it is not started at all —
+    # otherwise it would mark rows `last_alerted_on` with nobody able to hear.
+    if Application.get_env(:taskmaster, :alert_scheduler, true) and Taskmaster.Audio.enabled?() do
       {:ok, _} = Supervisor.start_child(sup, Taskmaster.Events.AlertScheduler)
     end
 

@@ -133,32 +133,38 @@ defmodule TaskmasterWeb.GroceryLive do
 
     ~H"""
     <div>
-      <div class="flex items-center justify-between mb-4">
-        <h1 class="text-4xl font-bold">Groceries</h1>
-        <button phx-click="clear_groceries" class="btn btn-lg btn-error btn-outline text-xl">
+      <%!-- Sizes come in two steps throughout this screen: the bare class is a
+            phone in portrait, where three columns share about 360px, and `sm:`
+            (640px up, so every tablet) is the board sizing the spec asks for. --%>
+      <div class="flex items-center justify-between mb-2 sm:mb-4">
+        <h1 class="text-2xl sm:text-4xl font-bold">Groceries</h1>
+        <button
+          phx-click="clear_groceries"
+          class="btn btn-sm sm:btn-lg btn-error btn-outline text-sm sm:text-xl"
+        >
           Clear All
         </button>
       </div>
 
       <%!-- Add item, with suggestions from the dictionary as you type --%>
-      <div class="relative mb-4">
+      <div class="relative mb-2 sm:mb-4">
         <form
           id="grocery-form"
           phx-change="suggest"
           phx-submit="submit_item"
           phx-target={@myself}
-          class="flex gap-3"
+          class="flex gap-2 sm:gap-3"
         >
           <input
             type="text"
             name="name"
             value={@query}
             placeholder="Add item..."
-            class="input input-lg input-bordered flex-1 text-2xl"
+            class="input sm:input-lg input-bordered flex-1 text-base sm:text-2xl"
             autocomplete="off"
             phx-debounce="120"
           />
-          <button type="submit" class="btn btn-lg btn-primary text-xl">Add</button>
+          <button type="submit" class="btn sm:btn-lg btn-primary text-base sm:text-xl">Add</button>
         </form>
 
         <ul
@@ -176,7 +182,7 @@ defmodule TaskmasterWeb.GroceryLive do
               phx-value-name={term.name}
               phx-value-category={term.category}
               phx-target={@myself}
-              class={"flex-1 text-left text-2xl px-4 py-4 hover:bg-base-200 cursor-pointer #{category_text_class(term.category)}"}
+              class={"flex-1 text-left text-base sm:text-2xl px-3 sm:px-4 py-2 sm:py-4 hover:bg-base-200 cursor-pointer #{category_text_class(term.category)}"}
             >
               {term.name}
             </button>
@@ -187,7 +193,7 @@ defmodule TaskmasterWeb.GroceryLive do
               phx-target={@myself}
               title={"Delete #{term.name}"}
               aria-label={"Delete #{term.name}"}
-              class="px-5 py-4 text-3xl font-bold text-red-600 hover:bg-red-600/10 cursor-pointer"
+              class="px-4 sm:px-5 py-2 sm:py-4 text-2xl sm:text-3xl font-bold text-red-600 hover:bg-red-600/10 cursor-pointer"
             >
               &times;
             </button>
@@ -195,31 +201,40 @@ defmodule TaskmasterWeb.GroceryLive do
         </ul>
       </div>
 
-      <%!-- Three columns --%>
-      <div class="grid grid-cols-3 gap-4">
-        <div :for={{category, label, text_class, border_class} <- @category_labels}>
-          <h2 class={"text-3xl font-bold mb-2 border-b-2 pb-1 #{text_class} #{border_class}"}>
+      <%!-- Three columns, and the drop targets for GroceryDrag: `data-category`
+            is what the hook reads back off the column under the finger, and the
+            minimum height is so an empty list is still something you can hit.
+            `break-words` earns its place at 105px of column — a single long
+            word has nowhere to wrap and otherwise spills across the neighbour. --%>
+      <div id="grocery-columns" phx-hook="GroceryDrag" class="grid grid-cols-3 gap-1.5 sm:gap-4">
+        <div
+          :for={{category, label, text_class, border_class} <- @category_labels}
+          data-category={category}
+          class="rounded p-0.5 sm:p-1 transition-colors"
+        >
+          <h2 class={"text-sm sm:text-3xl font-bold leading-tight mb-1 sm:mb-2 border-b-2 pb-0.5 sm:pb-1 #{text_class} #{border_class}"}>
             {label}
           </h2>
-          <ul class="space-y-1">
+          <ul class="space-y-0.5 sm:space-y-1 min-h-16 sm:min-h-24">
             <li
               :for={item <- items_for(assigns, category)}
               id={"grocery-item-#{item.id}"}
               phx-hook="LongPress"
               data-name={item.name}
-              class="flex items-center gap-2 rounded select-none"
+              data-item-id={item.id}
+              class="flex items-center gap-0.5 sm:gap-2 rounded select-none touch-pan-y"
             >
               <button
                 phx-click="toggle_grocery"
                 phx-value-id={item.id}
-                class={"text-4xl cursor-pointer flex-1 text-left py-0.5 #{text_class} #{if item.checked, do: "line-through opacity-50"}"}
+                class={"text-xs sm:text-4xl leading-tight cursor-pointer flex-1 text-left break-words py-0.5 #{text_class} #{if item.checked, do: "line-through opacity-50"}"}
               >
                 {item.name}
               </button>
               <button
                 phx-click="delete_grocery"
                 phx-value-id={item.id}
-                class="btn btn-sm btn-ghost text-error cursor-pointer"
+                class="btn btn-xs sm:btn-sm btn-ghost text-error cursor-pointer"
               >
                 X
               </button>
@@ -228,7 +243,9 @@ defmodule TaskmasterWeb.GroceryLive do
         </div>
       </div>
 
-      <p class="mt-4 text-base text-base-content/50">Hold to delete word.</p>
+      <p class="mt-3 sm:mt-4 text-xs sm:text-base text-base-content/50">
+        Hold to delete word. Drag sideways to move.
+      </p>
 
       <%!-- "Which list?" — shown when the board does not know the word --%>
       <div
@@ -236,16 +253,16 @@ defmodule TaskmasterWeb.GroceryLive do
         id="categorize-dialog"
         class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
       >
-        <div class="bg-base-100 rounded-lg p-6 w-full max-w-lg shadow-xl">
-          <h2 class="text-3xl font-bold mb-5">{@categorizing}</h2>
+        <div class="bg-base-100 rounded-lg p-4 sm:p-6 w-full max-w-lg shadow-xl">
+          <h2 class="text-xl sm:text-3xl font-bold mb-4 sm:mb-5 break-words">{@categorizing}</h2>
 
-          <div class="flex flex-col gap-3">
+          <div class="flex flex-col gap-2 sm:gap-3">
             <button
               :for={{category, label, text_class, border_class} <- @category_labels}
               phx-click="categorize"
               phx-value-category={category}
               phx-target={@myself}
-              class={"btn btn-lg btn-outline text-2xl justify-start #{text_class} #{border_class}"}
+              class={"btn sm:btn-lg btn-outline text-lg sm:text-2xl justify-start #{text_class} #{border_class}"}
             >
               {label}
             </button>
@@ -254,7 +271,7 @@ defmodule TaskmasterWeb.GroceryLive do
           <button
             phx-click="cancel_categorize"
             phx-target={@myself}
-            class="btn btn-lg btn-ghost w-full text-xl mt-4"
+            class="btn sm:btn-lg btn-ghost w-full text-base sm:text-xl mt-3 sm:mt-4"
           >
             Cancel
           </button>
@@ -269,22 +286,24 @@ defmodule TaskmasterWeb.GroceryLive do
       >
         <div
           :if={match?({:term, _}, @forgetting)}
-          class="bg-base-100 rounded-lg p-6 w-full max-w-lg shadow-xl"
+          class="bg-base-100 rounded-lg p-4 sm:p-6 w-full max-w-lg shadow-xl"
         >
-          <h2 class="text-3xl font-bold mb-5">Delete "{elem(@forgetting, 1)}"?</h2>
+          <h2 class="text-xl sm:text-3xl font-bold mb-4 sm:mb-5 break-words">
+            Delete "{elem(@forgetting, 1)}"?
+          </h2>
 
-          <div class="flex gap-3">
+          <div class="flex gap-2 sm:gap-3">
             <button
               phx-click="forget"
               phx-target={@myself}
-              class="btn btn-lg btn-error flex-1 text-xl"
+              class="btn sm:btn-lg btn-error flex-1 text-base sm:text-xl"
             >
               Yes
             </button>
             <button
               phx-click="cancel_forget"
               phx-target={@myself}
-              class="btn btn-lg btn-ghost flex-1 text-xl"
+              class="btn sm:btn-lg btn-ghost flex-1 text-base sm:text-xl"
             >
               No
             </button>
@@ -295,14 +314,16 @@ defmodule TaskmasterWeb.GroceryLive do
               voice, say). Nothing to delete, so say so rather than pretending. --%>
         <div
           :if={match?({:unknown, _}, @forgetting)}
-          class="bg-base-100 rounded-lg p-6 w-full max-w-lg shadow-xl"
+          class="bg-base-100 rounded-lg p-4 sm:p-6 w-full max-w-lg shadow-xl"
         >
-          <h2 class="text-3xl font-bold mb-5">"{elem(@forgetting, 1)}" not in dictionary</h2>
+          <h2 class="text-xl sm:text-3xl font-bold mb-4 sm:mb-5 break-words">
+            "{elem(@forgetting, 1)}" not in dictionary
+          </h2>
 
           <button
             phx-click="cancel_forget"
             phx-target={@myself}
-            class="btn btn-lg btn-ghost w-full text-xl"
+            class="btn sm:btn-lg btn-ghost w-full text-base sm:text-xl"
           >
             OK
           </button>

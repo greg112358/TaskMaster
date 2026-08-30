@@ -102,7 +102,9 @@ defmodule Taskmaster.Events.AlertsTest do
       event(alert: false)
 
       assert Alerts.fire_due(@today) == []
-      refute_receive {:alert, _}
+      # fire_due/1 broadcasts before it returns, so there is nothing in flight
+      # to wait for — the default 100ms timeout only ever waited.
+      refute_received {:alert, _}
     end
   end
 

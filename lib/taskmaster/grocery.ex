@@ -61,6 +61,29 @@ defmodule Taskmaster.Grocery do
     end
   end
 
+  @doc """
+  Moves an item to another list. `:error` when the id is stale — see
+  `toggle_item/1`.
+
+  The row only. Teaching the dictionary so the *next* one lands on the same list
+  is the caller's job — `AppLive` does both when a row is dragged across.
+  """
+  def set_category(id, category) do
+    case Repo.get(Item, id) do
+      nil ->
+        :error
+
+      item ->
+        item
+        |> Item.changeset(%{category: category})
+        |> Repo.update()
+        |> tap(fn
+          {:ok, _} -> broadcast()
+          _ -> :ok
+        end)
+    end
+  end
+
   @doc "Removes an item. `:error` when the id is stale — see `toggle_item/1`."
   def delete_item(id) do
     case Repo.get(Item, id) do

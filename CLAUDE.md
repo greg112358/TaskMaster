@@ -8,7 +8,7 @@ A family chore/calendar board: a **wall-mounted touchscreen appliance**. It runs
 
 Two constraints from the spec drive most UI decisions:
 
-- **Readable from ~10 feet.** Big type and big hit targets throughout (`text-xl`+, `btn-lg`, `select-lg`). Don't add small text.
+- **Readable from ~10 feet.** Big type and big hit targets throughout (`text-xl`+, `btn-lg`, `select-lg`). Don't add small text. Two deliberate exceptions, both sizing in two steps — the bare class is a phone in portrait, `sm:` (640px up, so every tablet) is the board sizing: `GroceryLive`, where three columns share ~105px each, and `AppLive`'s bottom nav, where four labels share the width. A tablet renders identically either way, so don't "fix" the small bare classes in those two places.
 - **Everything works by touch *and* by voice**, and the available voice commands are visible on screen (`AppLive.voice_hints/1`).
 
 ## Commands
@@ -118,6 +118,8 @@ Tests: `ConnCase` hands out an **authenticated** conn by default (fixture at `te
 
 Which of the three lists an item lands on comes from the `grocery_terms` table, not from code. It is seeded from `Taskmaster.Grocery.DefaultTerms` by migration 5 and edited from the screen thereafter, so **editing `DefaultTerms` does nothing to an existing database**. Matching is exact-then-longest-substring, so "whole milk" resolves via "milk" and "corned beef" beats "corn".
 
+Two ways to file a word, and both write twice: the "which list?" dialog and dragging a row onto another column each move/add the item **and** `Dictionary.learn/2` the word. Moving only the row would put the next one straight back where the dictionary thought it went. The drag itself is `assets/js/hooks/grocery_drag.js` — one hook on the grid, horizontal-only so `touch-action: pan-y` can leave vertical scrolling to the browser and so it cannot race the `LongPress` on the same row.
+
 The one ordering trap: after handing a dictionary write up to `AppLive`, a component must **not** recompute suggestions itself — that runs before the write. `Dictionary` broadcasts `:dictionary_changed` and the component refreshes on that. Full detail in **`docs/grocery-dictionary.md`**.
 
 ### Browser capabilities fail silently — report them
@@ -149,6 +151,15 @@ SQLite runs in **WAL** mode (`config/config.exs`) — without it, a reader arriv
 Transactions are `:immediate` (`BEGIN IMMEDIATE`). A deferred transaction starts as a reader and takes the write lock at its first write; if another connection got there first, SQLite returns SQLITE_BUSY **immediately and ignores `busy_timeout`**, because waiting could deadlock. Taking the lock up front is what makes `busy_timeout` apply at all.
 
 Two test-only deviations, both load-bearing: `journal_mode: :delete`, and `pool_size: 2` — the minimum, since Ecto always runs a migration in a Task while the caller holds a connection.
+
+**No test waits on a clock.** The suite has no `Process.sleep`, and the alert
+refutations use `refute_received` (no timeout) after a `:sys.get_state/1` barrier
+on the scheduler, not `refute_receive ..., 200`. A synchronous system message is
+answered only after everything already queued, and PubSub delivers to a local
+subscriber with a plain `send` before the write returns — so once the barrier
+comes back, any alert is already in the test's mailbox. That is a stronger
+assertion than a timeout, not a weaker one, and it was 500ms of a 1.2s suite.
+Don't reintroduce a timeout to "fix" a flake there; find the missing barrier.
 
 **LiveView tests must call `isolate_view/1`** (in `ConnCase`) on every mounted view. `live/2` links the view to the test process, so it dies exactly as the test ends and a message still in flight can write while the *next* test owns the connection — an intermittent "Database busy" in an unrelated test. `isolate_view/1` unlinks and stops it synchronously in an `on_exit` that LIFO puts before the sandbox's.
 

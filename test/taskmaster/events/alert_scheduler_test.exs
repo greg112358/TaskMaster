@@ -29,6 +29,18 @@ defmodule Taskmaster.Events.AlertSchedulerTest do
     :test_alert_scheduler
   end
 
+  # A mailbox barrier, and the reason the refutations below need no timeout.
+  #
+  # `:sys.get_state/1` is a synchronous system message, so it is answered only
+  # after everything already queued ahead of it. PubSub hands a local subscriber
+  # its message with a plain `send` before `create_event/1` returns, so the
+  # scheduler's `:events_changed` is queued before this call is. Once this comes
+  # back, the scheduler has looked, and any alert it was going to broadcast is
+  # already in *our* mailbox — `refute_received` is then exact.
+  #
+  # `refute_receive ..., 200` was never more than a guess with a 200ms price.
+  defp sync(scheduler), do: :sys.get_state(scheduler)
+
   setup do
     Alerts.subscribe()
     :ok
@@ -55,22 +67,26 @@ defmodule Taskmaster.Events.AlertSchedulerTest do
   end
 
   test "saving an event that is not due stays quiet" do
-    start_scheduler(watch_events: true)
+    scheduler = start_scheduler(watch_events: true)
 
     due_task(start_date: Date.add(Date.utc_today(), 3))
+    sync(scheduler)
 
-    refute_receive {:alert, _}, 200
+    refute_received {:alert, _}
   end
 
   test "the first poll waits a tick so it does not fire before a client connects" do
-    start_scheduler(watch_events: false, tick_interval: :timer.hours(1))
+    scheduler = start_scheduler(watch_events: false, tick_interval: :timer.hours(1))
     due_task()
+    sync(scheduler)
 
-    refute_receive {:alert, _}, 200
+    # The only thing that could still announce is the tick, an hour out. Waiting
+    # 200ms for it proved no more than returning now does.
+    refute_received {:alert, _}
   end
 
   test "a tick announces what is due" do
-    start_scheduler(watch_events: false, tick_interval: 50)
+    start_scheduler(watch_events: false, tick_interval: 10)
     due_task()
 
     assert_receive {:alert, %{text: "Time to take out the bins"}}, 1000

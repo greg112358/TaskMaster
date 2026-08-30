@@ -145,6 +145,24 @@ defmodule TaskmasterWeb.AppLive do
     {:noreply, socket}
   end
 
+  # Dropped on another column. Two writes on purpose: the row moves, and the word
+  # behind it is taught, so the next one added lands where the family put it
+  # rather than back where the dictionary thought it went.
+  def handle_event("recategorize_grocery", %{"id" => id, "category" => category}, socket) do
+    with {:ok, item} <- with_id(id, &Grocery.set_category(&1, category)),
+         {:ok, _term} <- Dictionary.learn(item.name, category) do
+      {:noreply, assign(socket, :last_voice_message, "Moved item: #{item.name} (#{category})")}
+    else
+      # A stale id — the row went out from under the finger on the other tablet,
+      # which has already broadcast its removal.
+      :error ->
+        {:noreply, socket}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, :last_voice_message, error_message(changeset))}
+    end
+  end
+
   def handle_event("clear_groceries", _params, socket) do
     Grocery.clear_all()
     {:noreply, socket}
@@ -551,7 +569,7 @@ defmodule TaskmasterWeb.AppLive do
           }
           phx-click="navigate"
           phx-value-view={view}
-          class={"flex-1 py-5 text-2xl font-bold text-center transition-colors cursor-pointer
+          class={"flex-1 py-3 sm:py-5 text-base sm:text-2xl font-bold text-center transition-colors cursor-pointer
             #{if @current_view == view, do: "bg-primary text-primary-content", else: "hover:bg-base-200"}"}
         >
           {label}

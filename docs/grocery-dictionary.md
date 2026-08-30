@@ -15,6 +15,7 @@ ships with, can be taught, moved or forgotten from the Groceries screen.
 | **Add a word it doesn't know** | Asks *"Which list?"* — the answer files the item **and** teaches the word, so it is asked only once |
 | Tap the red × on a suggestion | Asks to confirm, then forgets the word |
 | **Press and hold an item** | Asks to confirm, then forgets the word behind it |
+| **Drag an item sideways onto another column** | Moves the row **and** teaches the word that list |
 
 Forgetting only affects the dictionary. Anything already on the shopping list
 stays exactly where it is — the word simply stops being suggested, and the board
@@ -80,6 +81,73 @@ actually responsible for its colour; "whole milk" was never in the dictionary.
 all the dialog says so plainly rather than offering a delete that would do
 nothing.
 
+## Dragging a row to another list
+
+Dragging is the repair for a word the dictionary has filed wrongly, so it does
+two writes, not one: `Grocery.set_category/2` moves the row, and
+`Dictionary.learn/2` moves the word. Moving only the row would be a lie — the
+next carton of milk would land back on the red list, with the board looking
+broken and no way to explain it from the screen. It is the same bargain as the
+"which list?" dialog, which also files an item and teaches a word in one answer,
+and it is undone the same way it was made: drag it back.
+
+`AppLive` composes the two, matching `{:learn_grocery_term, ...}`. Both writes
+are checked — a stale id (the other tablet deleted the row mid-drag) is silently
+dropped, and a rejected changeset goes to the status bar through
+`error_message/1`. A successful move says `Moved item: milk (produce)`, naming
+the raw category rather than its label, per the `deslop` skill.
+
+### The gesture
+
+`assets/js/hooks/grocery_drag.js`, one hook on the grid container rather than one
+per row — a row already carries `phx-hook="LongPress"`, and an element carries
+only one hook. Rows are found by delegation, so a LiveView patch that adds or
+removes rows needs no rebinding.
+
+The gesture is **horizontal on purpose**. On a phone the rows *are* the scrolling
+surface, so each row sets `touch-action: pan-y` (`touch-pan-y`): the browser keeps
+vertical pans and hands us `pointercancel` when it takes one, and horizontal
+movement past `DRAG_THRESHOLD_PX` becomes a drag. Three gestures therefore share
+one finger without ambiguity:
+
+| Finger | What happens |
+| --- | --- |
+| Down, still, 600ms | Long press — forget the word |
+| Down, across >12px | Drag — move the row |
+| Down, down/up | The list scrolls |
+
+Details that are load-bearing:
+
+- **The ghost is a clone appended to `document.body`**, with its `id`, its
+  descendants' ids and its `phx-hook` stripped. Two elements sharing one id is a
+  bad thing to hand LiveView. It also sets `pointer-events: none`, so
+  `elementFromPoint` answers with the column under the finger rather than with
+  the thing following it.
+- **The drop target is read off the DOM**, not tracked: each column div carries
+  `data-category`, and the column is whatever `elementFromPoint(x, y).closest("[data-category]")`
+  returns. An empty list still has to be hittable, hence `min-h-16` on the `ul`.
+- **The click after the release is swallowed in the capture phase**, exactly as
+  in `long_press.js` — otherwise letting go would also tick the row off. The flag
+  is cleared on the next `pointerdown` as well as when consumed, so a release
+  outside the grid cannot leave it armed for an unrelated tap.
+- **A drag is refused while either dialog is open.** The finger belongs to the
+  modal, not to the list underneath it.
+- Pointer capture keeps the moves coming once the finger leaves the grid.
+
+### Sizing: the phone exception
+
+Three columns on a phone in portrait share about 360px, minus the page padding
+and two gaps — roughly 105px each. At the board's `text-4xl` a single long word
+has nowhere to wrap and spills across its neighbour, which is what "the columns
+overlap" looks like.
+
+So this screen alone sizes in two steps: **the bare class is the phone**, and
+**`sm:` (640px and up, which is every tablet) is the board sizing** the
+`requirements.md` 10-foot rule asks for. A tablet renders exactly what it
+rendered before. `break-words` on the item name is the other half of the fix —
+`overflow-wrap` is what actually stops a long word overflowing its column,
+smaller type only makes it rarer.
+
 ## Structure
 
 | Module | Role |
@@ -89,6 +157,7 @@ nothing.
 | `Taskmaster.Grocery.DefaultTerms` | built-in vocabulary, seed data only |
 | `TaskmasterWeb.GroceryLive` | the screen, including both dialogs |
 | `assets/js/hooks/long_press.js` | press-and-hold on a touchscreen |
+| `assets/js/hooks/grocery_drag.js` | drag a row between columns |
 
 ### Why the screen keeps its own state
 

@@ -48,6 +48,12 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
     render(view)
   end
 
+  # Dragging a row onto another column. Like the long press, the hook cannot
+  # address the component, so the event arrives at AppLive.
+  defp drag(view, id, category) do
+    render_hook(view, "recategorize_grocery", %{"id" => to_string(id), "category" => category})
+  end
+
   # A dictionary edit travels component -> AppLive -> PubSub -> AppLive ->
   # component. Each hop is a message, and a render only drains what was already
   # queued, so the DOM has settled only once they have all been through.
@@ -262,6 +268,61 @@ defmodule TaskmasterWeb.GroceryDictionaryTest do
 
       assert html =~ "not in dictionary"
       refute html =~ ~s(Delete &quot;)
+    end
+  end
+
+  describe "dragging a row to another column" do
+    test "moves the item", %{conn: conn} do
+      view = groceries(conn)
+      submit(view, "milk")
+      [item] = Grocery.list_items()
+
+      drag(view, item.id, "produce")
+
+      assert [%{name: "milk", category: "produce"}] = Grocery.list_items()
+    end
+
+    test "teaches the word, so the next one lands there too", %{conn: conn} do
+      view = groceries(conn)
+      submit(view, "milk")
+      [item] = Grocery.list_items()
+
+      drag(view, item.id, "produce")
+
+      assert Dictionary.category_for("milk") == {:ok, "produce"}
+
+      submit(view, "milk")
+      assert [_, %{name: "milk", category: "produce"}] = Grocery.list_items()
+    end
+
+    test "names the move in the status bar", %{conn: conn} do
+      view = groceries(conn)
+      submit(view, "milk")
+      [item] = Grocery.list_items()
+
+      assert drag(view, item.id, "produce") =~ "Moved item: milk (produce)"
+    end
+
+    test "a row deleted on the other tablet is ignored, not a crash", %{conn: conn} do
+      view = groceries(conn)
+      submit(view, "milk")
+      [item] = Grocery.list_items()
+      Grocery.delete_item(item.id)
+
+      drag(view, item.id, "produce")
+
+      assert render(view) =~ "Groceries"
+      # Nothing was taught on the way past, either.
+      assert Dictionary.category_for("milk") == {:ok, "meat_dairy"}
+    end
+
+    test "a category the schema does not know is rejected and named", %{conn: conn} do
+      view = groceries(conn)
+      submit(view, "milk")
+      [item] = Grocery.list_items()
+
+      assert drag(view, item.id, "frozen") =~ "Invalid field: category="
+      assert [%{category: "meat_dairy"}] = Grocery.list_items()
     end
   end
 end

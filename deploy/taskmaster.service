@@ -6,6 +6,15 @@
 #
 # Adjust User and the paths below if the checkout lives somewhere else.
 # See docs/deployment.md.
+#
+# Headless server with no X (e.g. a cloud VM)? The `desktop` OTP application
+# initialises wx at boot even in web mode, and wx needs an X server, so wrap
+# ExecStart in a virtual framebuffer:
+#
+#   apt install xvfb
+#   ExecStart=/usr/bin/xvfb-run -a .../bin/taskmaster start
+#
+# A machine with a real display (the intended Pi/desktop target) does not.
 
 [Unit]
 Description=Taskmaster family board

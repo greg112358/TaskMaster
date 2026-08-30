@@ -69,6 +69,44 @@ To run it by hand while testing, without installing anything:
 TASKMASTER_WEB=1 PORT=4000 mix run --no-halt
 ```
 
+### Headless servers need a virtual X display
+
+The `desktop` dependency is an OTP application with its own `start/2`, so it
+runs at boot **regardless of `desktop_window`** — web mode only skips opening
+the *window*, not starting wx. wx cannot initialise without an X server, and on
+a headless box (a cloud VM, a server install) it crashes the whole node at boot
+with `WX ERROR: Could not load library` / `Unable to initialize GTK+`.
+
+Fix is a throwaway virtual framebuffer — no code change:
+
+```bash
+apt install xvfb
+# in the unit:
+ExecStart=/usr/bin/xvfb-run -a .../bin/taskmaster start
+```
+
+The Pi/desktop target has a real display and does not need this.
+
+### Exposing it to the internet
+
+`config/runtime.exs` sets `check_origin: false` in web mode and the login is one
+shared password sent in clear over HTTP — fine on a home LAN, thin on a public
+address. If you must (e.g. the server is a VPS), at least:
+
+- open only the one port: `ufw allow 4000/tcp`;
+- on a cloud provider, also open it in their separate **cloud firewall** panel —
+  the host firewall is not the only layer;
+- pick a strong line in `credentials.txt`, and prefer putting the whole thing
+  behind HTTPS (a reverse proxy or a Tailscale hostname), which the screen wake
+  lock wants anyway.
+
+### This server (104.207.151.162)
+
+Deployed as above: Elixir 1.18 / OTP 27 from apt, release under `xvfb-run`, unit
+at `/etc/systemd/system/taskmaster.service` (`User=root`, checkout at
+`/root/TaskMaster`), `SECRET_KEY_BASE` in `/etc/taskmaster.env` (0600), port
+4000 open in `ufw`. Reachable at `http://104.207.151.162:4000`.
+
 ## Layer 2: the browser always shows it
 
 A running server is no use if the tablet is sitting on a home screen. The page

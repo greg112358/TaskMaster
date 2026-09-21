@@ -29,6 +29,7 @@ defmodule Taskmaster.Events.AlertScheduler do
 
   require Logger
 
+  alias Taskmaster.Clock
   alias Taskmaster.Events
   alias Taskmaster.Events.Alerts
 
@@ -81,7 +82,8 @@ defmodule Taskmaster.Events.AlertScheduler do
   # A failed poll (database busy, say) must not take the scheduler down with
   # it — the next tick will try again.
   defp check do
-    Alerts.fire_due(Date.utc_today())
+    {today, time} = Clock.today_and_time()
+    Alerts.fire_due(today, time)
   rescue
     error ->
       Logger.warning("Alert check failed: #{Exception.message(error)}")

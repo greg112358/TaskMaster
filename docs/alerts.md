@@ -49,6 +49,10 @@ to `events`:
 | `alert` | boolean, `false` | The checkbox. When true this event announces itself. |
 | `last_alerted_on` | date, null | The day it last announced. |
 
+The time an alert announces at is the event's own `start_time` (migration 8),
+not a column of its own: an alert is a reminder that the thing is happening, so
+a second time to keep in step would only ever drift.
+
 `last_alerted_on` is what stops an alert repeating. It is a **date**, not a
 timestamp, because the poll below runs continuously — without it a due alert
 would fire every 30 seconds all day, and a restart would replay alerts that had
@@ -79,10 +83,13 @@ Taskmaster.Events.AlertScheduler        polls (GenServer)
 
 The whole server-side rule set, and the part worth unit testing.
 
-* `due_on/1` — alerting events that occur on a date and have not already
-  announced that day. Whether an event "occurs" on a date is answered by
-  `Taskmaster.Events.Recurrence`, so recurrence rules are honoured for free.
-* `fire_due/1` — marks and broadcasts each of them; returns the payloads. It
+* `due_on/2` — alerting events that occur on a date, whose time of day has
+  arrived, and that have not already announced that day. Whether an event
+  "occurs" on a date is answered by `Taskmaster.Events.Recurrence`, so
+  recurrence rules are honoured for free. The time filter runs in Elixir, not
+  in the query: SQLite keeps a time as text, so a bound comparison would
+  quietly depend on both sides carrying the same fractional digits.
+* `fire_due/2` — marks and broadcasts each of them; returns the payloads. It
   marks *before* it broadcasts, so a subscriber crashing cannot cause the same
   alert to fire again on the next poll.
 * `announcement/1` / `payload/1` — the spoken sentence and the map handed to the
@@ -96,8 +103,9 @@ unloaded association is treated as unassigned rather than raising.
 
 A thin GenServer around `Alerts.fire_due/1`. Two things wake it:
 
-* **A 30 second tick.** This is what catches the rollover into a new day on a
-  board that is left running.
+* **A 30 second tick.** This is what catches the rollover into a new day, and
+  the arrival of an event's time of day, on a board that is left running. It
+  also bounds how late a timed alert can be: half a minute.
 * **The `:events_changed` broadcast.** Saving an event that is due *today* would
   otherwise wait up to a tick to announce; this makes it immediate, which is
   also what makes the feature easy to try out.
@@ -105,6 +113,10 @@ A thin GenServer around `Alerts.fire_due/1`. Two things wake it:
 The first poll is deliberately one tick after boot, not immediate: announcing
 before the desktop window has connected its LiveView would mark the alert as
 fired with nobody listening.
+
+It reads the clock through `Clock.today_and_time/0` — one instant, so the date
+and the time of day can never be paired across midnight — and that clock is
+Pacific, like everything else on this board. See `docs/events.md`.
 
 A failed poll is logged and swallowed rather than crashing the scheduler — the
 next tick tries again.
@@ -147,7 +159,7 @@ Two things to know if you are editing it:
 
 `phx-click={JS.dispatch("taskmaster:test-alert", to: "#app-root")}` — a
 client-side event with no server round trip. The hook listens on its own
-element, reads the title straight out of `#add-event-form`, and announces
+element, reads the title straight out of `#event-form`, and announces
 `"Alert test. <title>"`. It is there so somebody standing in front of the board
 can confirm the speakers work and the volume carries.
 
@@ -158,21 +170,25 @@ Note that it plays a *preview*: the real announcement is built server-side by
 
 ## Timing: what is and is not guaranteed
 
-Events carry a **date, not a time** — the whole app is date-based. So:
+An event carries an optional `start_time` (Pacific wall clock, null for all
+day). So:
 
-* An alert fires on the day it is due, at the first poll where the app is
-  running and the day has arrived. On a board left on overnight that is within
-  30 seconds of midnight. On a board switched on in the morning it is ~30
-  seconds after boot.
-* **Missed days are not replayed.** If the app is off all of Tuesday, Tuesday's
-  alert never announces; Wednesday's still will. Announcing yesterday's chore
-  today is more confusing than silence.
-* **An alert announced with no client connected is lost.** `fire_due/1` marks
+* **An all-day alert fires on the first poll of its day.** On a board left on
+  overnight that is within 30 seconds of midnight; on one switched on in the
+  morning, ~30 seconds after boot.
+* **A timed alert fires on the first poll at or after its time**, so within 30
+  seconds of it. `last_alerted_on` is still a *date*, which is what stops it
+  repeating for the rest of the day.
+* **Missed times are announced late, missed days are not replayed.** A board
+  switched on at 11:00 announces the 9:00 alert it slept through — the family
+  has not heard it and the day is still the day. If the app is off all of
+  Tuesday, Tuesday's alert never announces; Wednesday's still will.
+* **An alert announced with no client connected is lost.** `fire_due/2` marks
   first, so if the desktop window is closed the broadcast reaches nobody and the
   event is still marked as alerted for that day. The one-tick startup delay is
   what keeps this from happening in the normal boot sequence.
-
-If you need a specific time of day, see the extension notes below.
+* **Nothing here is sub-minute.** The column is `:time`, truncated to the
+  second, and the poll is every 30 seconds.
 
 ---
 
@@ -196,7 +212,8 @@ mix test
 ```
 
 * `test/taskmaster/events/alerts_test.exs` — due-detection, once-per-day
-  marking, recurrence, and the wording of every announcement variant.
+  marking, recurrence, waiting for the time of day, and the wording of every
+  announcement variant.
 * `test/taskmaster/events/alert_scheduler_test.exs` — `check_now/1`, the
   save-triggered poll, the tick, and the deliberate startup delay.
 * `test/taskmaster_web/live/alert_form_test.exs` — the checkbox round-trips
@@ -266,10 +283,10 @@ waits for `voiceschanged`, with `VOICE_LOAD_TIMEOUT_MS` as the give-up point.
 
 ## Extending
 
-**A time of day.** Add an `alert_time :time` column, keep `last_alerted_on` as
-is, and add `where: ^Time.utc_now() >= e.alert_time` to `Alerts.due_on/1`. Drop
-the tick interval to match the precision you want. Everything downstream is
-unchanged.
+**A time of day** is done — it is the event's own `start_time`, not a separate
+alert time, so an alert always announces when the thing happens. Migration 8
+added the column; `Alerts.due_on/2` filters on it. Drop `@tick_interval` if you
+want the announcement tighter than 30 seconds after the minute.
 
 **Voice control.** `Taskmaster.Voice.Parser` does not understand alerts yet;
 "add task feed the cat every day with an alert" would mean returning

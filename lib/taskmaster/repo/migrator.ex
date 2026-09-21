@@ -15,7 +15,10 @@ defmodule Taskmaster.Repo.Migrator do
       {3, Taskmaster.Repo.Migrations.CreateEvents},
       {4, Taskmaster.Repo.Migrations.AddAlertToEvents},
       {5, Taskmaster.Repo.Migrations.CreateGroceryTerms},
-      {6, Taskmaster.Repo.Migrations.ReseedGroceryTerms}
+      {6, Taskmaster.Repo.Migrations.ReseedGroceryTerms},
+      {7, Taskmaster.Repo.Migrations.CreateWkuk},
+      {8, Taskmaster.Repo.Migrations.AddStartTimeToEvents},
+      {9, Taskmaster.Repo.Migrations.RefreshWkukDescriptions}
     ]
   end
 end

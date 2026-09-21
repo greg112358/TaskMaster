@@ -6,12 +6,14 @@ import GroceryDrag from "./hooks/grocery_drag"
 import LongPress from "./hooks/long_press"
 import VoiceRecognition from "./hooks/voice_recognition"
 import WakeLock from "./hooks/wake_lock"
+import WkukDrag from "./hooks/wkuk_drag"
 
 const Hooks = {
   GroceryDrag,
   LongPress,
   VoiceRecognition,
-  WakeLock
+  WakeLock,
+  WkukDrag
 }
 
 // Try to load colocated hooks if available

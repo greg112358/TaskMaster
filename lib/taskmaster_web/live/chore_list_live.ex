@@ -1,6 +1,7 @@
 defmodule TaskmasterWeb.ChoreListLive do
   use TaskmasterWeb, :live_component
 
+  alias Taskmaster.Clock
   alias Taskmaster.Events
 
   @impl true
@@ -13,20 +14,25 @@ defmodule TaskmasterWeb.ChoreListLive do
       end)
       |> Enum.sort_by(fn t -> t.next_date || ~D[9999-12-31] end, Date)
 
+    # A component defining `update/2` assigns nothing by itself, so every key
+    # the template reads has to be listed here. `@audio` is only read inside
+    # the row loop, which is why an empty chore list rendered fine while the
+    # first chore added took the screen down with a KeyError.
     {:ok,
      socket
      |> assign(:id, assigns.id)
+     |> assign(:audio, assigns.audio)
      |> assign(:tasks, tasks_with_next)}
   end
 
-  defp format_date(nil), do: "-"
-  defp format_date(%Date{} = date), do: Calendar.strftime(date, "%b %d, %Y")
+  # The chore's own time of day rides along with the next date it falls on.
+  defp format_next_due(nil, _time), do: "-"
+  defp format_next_due(%Date{} = date, time), do: Clock.format_date_time(date, time)
 
-  defp format_datetime(nil), do: "Never"
-
-  defp format_datetime(%NaiveDateTime{} = dt) do
-    Calendar.strftime(dt, "%b %d, %Y %I:%M %p")
-  end
+  # `last_completed_at` is stored UTC, like every machine-written timestamp
+  # here, and is read in Pacific like everything a person sees.
+  defp format_completed(nil), do: "Never"
+  defp format_completed(%NaiveDateTime{} = dt), do: Clock.format_datetime(dt)
 
   defp recurrence_label(nil, _), do: "One time"
   defp recurrence_label("daily", _), do: "Daily"
@@ -66,8 +72,8 @@ defmodule TaskmasterWeb.ChoreListLive do
               </td>
               <td>{if task.person, do: task.person.name, else: "-"}</td>
               <td>{recurrence_label(task.recurrence_type, task.recurrence_interval)}</td>
-              <td>{format_date(task.next_date)}</td>
-              <td>{format_datetime(task.last_completed_at)}</td>
+              <td>{format_next_due(task.next_date, task.start_time)}</td>
+              <td>{format_completed(task.last_completed_at)}</td>
               <td class="flex gap-2">
                 <button
                   phx-click="mark_done"
@@ -75,6 +81,15 @@ defmodule TaskmasterWeb.ChoreListLive do
                   class="btn btn-lg btn-success text-lg"
                 >
                   Done
+                </button>
+                <%!-- Opens the same modal the calendar does, owned by
+                      `AppLive` — this component has no state of its own. --%>
+                <button
+                  phx-click="edit_event"
+                  phx-value-id={task.id}
+                  class="btn btn-lg btn-outline text-lg"
+                >
+                  Edit
                 </button>
                 <button
                   phx-click="delete_event"

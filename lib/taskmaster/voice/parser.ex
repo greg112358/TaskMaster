@@ -1,4 +1,24 @@
 defmodule Taskmaster.Voice.Parser do
+  @moduledoc """
+  Turns a spoken sentence into a tagged tuple for `TaskmasterWeb.AppLive`.
+
+  A `cond` of regexes, and **clause order matters**: the recurring patterns are
+  matched before the catch-all one-time ones.
+
+  ## Times
+
+  Anything that ends in a time of day — "add event dentist at 3pm", "add task
+  bins at 7:30 am every week" — carries a `:start_time` and loses that phrase
+  from the title. Recognised: `3pm`, `3:30 pm`, `noon`, `midnight`, and a
+  24-hour `14:30`.
+
+  A bare `at 7:30` is **not** a time, and stays in the title as typed. Half
+  past seven in the morning and half past seven in the evening are equally
+  likely on a family board, and a spoken time that means either is better left
+  visible than guessed at — the recogniser writes "7:30 PM" whenever the
+  speaker actually said one.
+  """
+
   def parse(transcript) do
     text = transcript |> String.trim() |> String.downcase()
 
@@ -31,7 +51,8 @@ defmodule Taskmaster.Voice.Parser do
         parse_one_time_task(match)
 
       match = Regex.run(~r/^add\s+event\s+(.+)$/i, text) ->
-        {:add_event, %{title: String.trim(Enum.at(match, 1))}}
+        {title, start_time} = split_time(String.trim(Enum.at(match, 1)))
+        {:add_event, %{title: title, start_time: start_time}}
 
       true ->
         :unrecognized
@@ -49,14 +70,15 @@ defmodule Taskmaster.Voice.Parser do
   end
 
   defp parse_task(match) do
-    person_name = Enum.at(match, 1)
-    title = String.trim(Enum.at(match, 2))
+    person_name = blank_to_nil(Enum.at(match, 1))
+    {title, start_time} = split_time(String.trim(Enum.at(match, 2)))
     recurrence_text = Enum.at(match, 3)
     {rec_type, rec_interval, rec_dow} = parse_recurrence(recurrence_text)
 
     {:add_task,
      %{
        title: title,
+       start_time: start_time,
        person_name: person_name,
        recurrence_type: rec_type,
        recurrence_interval: rec_interval,
@@ -65,12 +87,13 @@ defmodule Taskmaster.Voice.Parser do
   end
 
   defp parse_one_time_task(match) do
-    person_name = Enum.at(match, 1)
-    title = String.trim(Enum.at(match, 2))
+    person_name = blank_to_nil(Enum.at(match, 1))
+    {title, start_time} = split_time(String.trim(Enum.at(match, 2)))
 
     {:add_task,
      %{
        title: title,
+       start_time: start_time,
        person_name: person_name,
        recurrence_type: nil,
        recurrence_interval: nil,
@@ -79,17 +102,80 @@ defmodule Taskmaster.Voice.Parser do
   end
 
   defp parse_event(match) do
-    title = String.trim(Enum.at(match, 1))
+    {title, start_time} = split_time(String.trim(Enum.at(match, 1)))
     recurrence_text = Enum.at(match, 2)
     {rec_type, rec_interval, rec_dow} = parse_recurrence(recurrence_text)
 
     {:add_event,
      %{
        title: title,
+       start_time: start_time,
        recurrence_type: rec_type,
        recurrence_interval: rec_interval,
        recurrence_day_of_week: rec_dow
      }}
+  end
+
+  # An optional capture group that did not participate is "", not nil, and ""
+  # is truthy — read as a name, it sends "add task vacuum" down the "Unknown
+  # person:" path instead of adding the task.
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
+
+  # A trailing time of day, split off the title it was spoken with. The whole
+  # phrase stays in the title when it is not a time this understands, so a
+  # guess is never stored in place of what was said.
+  @time_phrase ~r/^(?<title>.+?)\s+at\s+(?<time>\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?|noon|midnight|\d{1,2}:\d{2})$/
+
+  defp split_time(title) do
+    with %{"title" => stripped, "time" => time_text} <-
+           Regex.named_captures(@time_phrase, title),
+         %Time{} = time <- parse_time(time_text) do
+      {String.trim(stripped), time}
+    else
+      _no_time -> {title, nil}
+    end
+  end
+
+  defp parse_time("noon"), do: ~T[12:00:00]
+  defp parse_time("midnight"), do: ~T[00:00:00]
+
+  # `named_captures` rather than `run`: a group that did not participate is ""
+  # here, where `run` simply drops the trailing ones and leaves a list of
+  # whatever length the input happened to produce.
+  @time_parts ~r/^(?<hour>\d{1,2})(?::(?<minute>\d{2}))?\s*(?<meridiem>am|pm)?$/
+
+  defp parse_time(text) do
+    case Regex.named_captures(@time_parts, String.replace(text, ".", "")) do
+      %{"hour" => hour, "minute" => minute, "meridiem" => meridiem} ->
+        build_time(String.to_integer(hour), minute, meridiem)
+
+      nil ->
+        nil
+    end
+  end
+
+  defp build_time(hour, minute, meridiem) do
+    minute = if minute == "", do: 0, else: String.to_integer(minute)
+
+    hour =
+      case {meridiem, hour} do
+        {"am", 12} -> 0
+        {"am", hour} -> hour
+        {"pm", hour} when hour < 12 -> hour + 12
+        {"pm", hour} -> hour
+        # No am/pm. Only a 24-hour reading is unambiguous; "at 7:30" is not one
+        # and is refused here, which leaves the phrase in the title.
+        {"", hour} when hour > 12 -> hour
+        {"", _hour} -> nil
+      end
+
+    with hour when is_integer(hour) <- hour,
+         {:ok, time} <- Time.new(hour, minute, 0) do
+      time
+    else
+      _invalid -> nil
+    end
   end
 
   defp parse_recurrence(text) do

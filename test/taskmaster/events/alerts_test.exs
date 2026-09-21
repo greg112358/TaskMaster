@@ -62,6 +62,56 @@ defmodule Taskmaster.Events.AlertsTest do
     end
   end
 
+  describe "an alert with a time on it" do
+    @morning ~T[09:00:00]
+
+    test "waits for that time of day" do
+      event(alert: true, start_time: @morning)
+
+      assert Alerts.due_on(@today, ~T[08:59:00]) == []
+    end
+
+    test "is due once the time has come" do
+      due = event(alert: true, start_time: @morning)
+
+      assert [%{id: id}] = Alerts.due_on(@today, @morning)
+      assert id == due.id
+    end
+
+    # A board switched on at 11 announces the 9 o'clock alert it slept through:
+    # the family has not heard it and the day is still the day. Missed *days*
+    # are the ones that are dropped.
+    test "still announces late in the day it was missed on" do
+      due = event(alert: true, start_time: @morning)
+
+      assert [%{id: id}] = Alerts.due_on(@today, ~T[23:59:00])
+      assert id == due.id
+    end
+
+    test "an all-day alert is due from midnight" do
+      due = event(alert: true)
+
+      assert [%{id: id}] = Alerts.due_on(@today, ~T[00:00:00])
+      assert id == due.id
+    end
+
+    test "announces once, not on every poll after its time" do
+      event(alert: true, start_time: @morning)
+
+      assert [_payload] = Alerts.fire_due(@today, @morning)
+      assert Alerts.fire_due(@today, ~T[09:00:30]) == []
+      assert Alerts.fire_due(@today, ~T[17:00:00]) == []
+    end
+
+    test "a recurring one comes round again the next day" do
+      event(alert: true, start_time: @morning, recurrence_type: "daily")
+
+      assert [_] = Alerts.fire_due(@today, @morning)
+      assert Alerts.fire_due(Date.add(@today, 1), ~T[08:00:00]) == []
+      assert [_] = Alerts.fire_due(Date.add(@today, 1), @morning)
+    end
+  end
+
   describe "fire_due/1" do
     setup do
       Alerts.subscribe()

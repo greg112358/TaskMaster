@@ -63,7 +63,10 @@ defmodule Taskmaster.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:desktop, "~> 1.5"}
+      {:desktop, "~> 1.5"},
+      # IANA time zone rules, compiled in. The board is Pacific everywhere
+      # (`Taskmaster.Clock`), and Elixir ships only a UTC database.
+      {:tz, "~> 0.28"}
     ]
   end
 

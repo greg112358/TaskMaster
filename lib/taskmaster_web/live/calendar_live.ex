@@ -1,35 +1,38 @@
 defmodule TaskmasterWeb.CalendarLive do
+  @moduledoc """
+  The month/week grid.
+
+  It holds the two pieces of state nobody outside this screen needs — which
+  view, and which month or week is showing — and nothing else. Both arrive as
+  `send_update` actions from `TaskmasterWeb.AppLive`, which handles the header
+  buttons.
+
+  Taps that write go straight to `AppLive` (no `phx-target`), so this component
+  has no `handle_event` at all:
+
+    * empty space in a day → `open_event_form`, carrying that day's date
+    * an event inside a day → `edit_event`, carrying its id
+
+  The two nest, which is what makes them one tap each: LiveView dispatches a
+  click to the *closest* element carrying a binding (`closestPhxBinding` in
+  `phoenix_live_view.esm.js`), so a tap on an event does not also open the
+  add form behind it.
+  """
+
   use TaskmasterWeb, :live_component
 
+  alias Taskmaster.Clock
   alias Taskmaster.Events.Recurrence
 
   @impl true
   def mount(socket) do
-    today = Date.utc_today()
+    today = Clock.today()
 
     {:ok,
      socket
      |> assign(:today, today)
      |> assign(:current_date, today)
-     |> assign(:view_mode, :month)
-     |> assign(:show_add_form, false)
-     |> assign(:add_form_date, nil)
-     |> assign(:form, blank_form())}
-  end
-
-  # Every field is rendered from here rather than left to live in the DOM.
-  # Without that, any re-render — changing Frequency shows or hides the interval
-  # field — can patch over an input whose value the server never knew about, and
-  # a half-typed title disappears.
-  defp blank_form do
-    %{
-      "title" => "",
-      "type" => "event",
-      "person_id" => "",
-      "recurrence_type" => "",
-      "recurrence_interval" => "1",
-      "alert" => "false"
-    }
+     |> assign(:view_mode, :month)}
   end
 
   @impl true
@@ -62,7 +65,6 @@ defmodule TaskmasterWeb.CalendarLive do
     {:ok,
      socket
      |> assign(:events, assigns.events)
-     |> assign(:people, assigns.people)
      |> assign(:audio, assigns.audio)
      |> assign(:id, assigns.id)}
   end
@@ -97,13 +99,14 @@ defmodule TaskmasterWeb.CalendarLive do
     Enum.map(0..6, &Date.add(monday, &1))
   end
 
+  # A day reads in clock order, all-day rows first. The list arrives sorted by
+  # `start_date`, which says nothing about where a recurring event falls on
+  # *this* day, so the time sort happens here. `nil` is an atom and atoms
+  # precede tuples in term order, so untimed rows come first for free.
   defp events_for_date(events, date) do
-    Enum.filter(events, fn event ->
-      range_start = date
-      range_end = date
-      occurrences = Recurrence.occurrences_in_range(event, range_start, range_end)
-      occurrences != []
-    end)
+    events
+    |> Enum.filter(fn event -> Recurrence.occurrences_in_range(event, date, date) != [] end)
+    |> Enum.sort_by(&(&1.start_time && Time.to_erl(&1.start_time)))
   end
 
   defp month_name(date) do
@@ -123,13 +126,6 @@ defmodule TaskmasterWeb.CalendarLive do
   defp in_current_month?(date, current_date) do
     date.month == current_date.month && date.year == current_date.year
   end
-
-  # The unit an interval is counted in, or nil for the frequencies that need no
-  # interval at all. Doubles as the "should the interval field be shown?" test.
-  defp interval_unit("every_n_days"), do: "Days"
-  defp interval_unit("every_n_weeks"), do: "Weeks"
-  defp interval_unit("every_n_months"), do: "Months"
-  defp interval_unit(_), do: nil
 
   @impl true
   def render(assigns) do
@@ -167,17 +163,21 @@ defmodule TaskmasterWeb.CalendarLive do
           class={"min-h-20 p-1 rounded border cursor-pointer
             #{if date == @today, do: "border-primary border-2", else: "border-base-300"}
             #{if in_current_month?(date, @current_date), do: "bg-base-100", else: "bg-base-200/50 text-base-content/40"}"}
-          phx-click="add_event_for_date"
+          phx-click="open_event_form"
           phx-value-date={Date.to_iso8601(date)}
-          phx-target={@myself}
         >
           <div class="text-lg font-semibold">{date.day}</div>
           <div
             :for={event <- events_for_date(@events, date)}
+            phx-click="edit_event"
+            phx-value-id={event.id}
             class={"text-xs px-1 rounded mb-0.5 truncate
             #{if event.type == "task", do: "bg-warning/30 text-warning-content", else: "bg-info/30 text-info-content"}"}
           >
-            <span :if={@audio and event.alert} title="Chimes and reads aloud">&#128276;</span>{event.title}
+            <span :if={@audio and event.alert} title="Chimes and reads aloud">&#128276;</span><span
+              :if={event.start_time}
+              class="font-semibold mr-1"
+            >{Clock.format_time_short(event.start_time)}</span>{event.title}
           </div>
         </div>
       </div>
@@ -186,184 +186,30 @@ defmodule TaskmasterWeb.CalendarLive do
       <div :if={@view_mode == :week} class="grid grid-cols-7 gap-2">
         <div
           :for={date <- week_dates(@current_date)}
-          class={"min-h-64 p-2 rounded border
+          class={"min-h-64 p-2 rounded border cursor-pointer
             #{if date == @today, do: "border-primary border-2", else: "border-base-300"}"}
-          phx-click="add_event_for_date"
+          phx-click="open_event_form"
           phx-value-date={Date.to_iso8601(date)}
-          phx-target={@myself}
         >
           <div class="text-xl font-bold mb-2">{day_name(date)} {date.day}</div>
           <div
             :for={event <- events_for_date(@events, date)}
+            phx-click="edit_event"
+            phx-value-id={event.id}
             class={"text-base p-2 rounded mb-1
             #{if event.type == "task", do: "bg-warning/30", else: "bg-info/30"}"}
           >
             <div class="font-semibold">
               <span :if={@audio and event.alert} title="Chimes and reads aloud">&#128276;</span>{event.title}
             </div>
+            <div :if={event.start_time} class="text-sm font-semibold">
+              {Clock.format_time(event.start_time)}
+            </div>
             <div :if={event.person} class="text-sm text-base-content/60">{event.person.name}</div>
           </div>
         </div>
       </div>
-
-      <%!-- Add event modal --%>
-      <div
-        :if={@show_add_form}
-        class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      >
-        <div class="bg-base-100 rounded-lg p-6 w-full max-w-lg shadow-xl">
-          <h2 class="text-3xl font-bold mb-4">Add Event / Task</h2>
-          <form
-            id="add-event-form"
-            phx-change="form_changed"
-            phx-submit="add_event"
-            phx-target={@myself}
-          >
-            <input type="hidden" name="start_date" value={@add_form_date} />
-
-            <div class="mb-3">
-              <label class="label text-xl">Title</label>
-              <input
-                type="text"
-                name="title"
-                value={@form["title"]}
-                class="input input-lg input-bordered w-full text-xl"
-                required
-                autofocus
-                phx-debounce="250"
-              />
-            </div>
-
-            <div class="mb-3">
-              <label class="label text-xl">Type</label>
-              <select name="type" class="select select-lg select-bordered w-full text-xl">
-                <option value="event" selected={@form["type"] == "event"}>Event</option>
-                <option value="task" selected={@form["type"] == "task"}>Task / Chore</option>
-              </select>
-            </div>
-
-            <div class="mb-3">
-              <label class="label text-xl">Assign To</label>
-              <select name="person_id" class="select select-lg select-bordered w-full text-xl">
-                <option value="" selected={@form["person_id"] == ""}>Nobody</option>
-                <option
-                  :for={p <- @people}
-                  value={p.id}
-                  selected={@form["person_id"] == to_string(p.id)}
-                >
-                  {p.name}
-                </option>
-              </select>
-            </div>
-
-            <div class="mb-3">
-              <label class="label text-xl">Frequency</label>
-              <select name="recurrence_type" class="select select-lg select-bordered w-full text-xl">
-                <option
-                  :for={
-                    {value, label} <- [
-                      {"", "One time"},
-                      {"daily", "Daily"},
-                      {"weekly", "Weekly"},
-                      {"monthly", "Monthly"},
-                      {"yearly", "Yearly"},
-                      {"every_n_days", "Every N days"},
-                      {"every_n_weeks", "Every N weeks"},
-                      {"every_n_months", "Every N months"}
-                    ]
-                  }
-                  value={value}
-                  selected={@form["recurrence_type"] == value}
-                >
-                  {label}
-                </option>
-              </select>
-            </div>
-
-            <div :if={interval_unit(@form["recurrence_type"])} class="mb-3">
-              <label class="label text-xl">{interval_unit(@form["recurrence_type"])}</label>
-              <input
-                type="number"
-                name="recurrence_interval"
-                value={@form["recurrence_interval"]}
-                min="1"
-                class="input input-lg input-bordered w-full text-xl"
-              />
-            </div>
-
-            <%!-- Alert. The hidden input makes an unchecked box send "false"
-                  instead of sending nothing at all. The whole block goes
-                  with audio off, so the form sends no `alert` key and every
-                  new event saves with alert=false. --%>
-            <div :if={@audio} class="mb-3 flex items-center gap-3">
-              <label class="label cursor-pointer justify-start gap-3 text-xl flex-1">
-                <input type="hidden" name="alert" value="false" />
-                <input
-                  type="checkbox"
-                  name="alert"
-                  value="true"
-                  checked={@form["alert"] == "true"}
-                  class="checkbox checkbox-lg checkbox-primary"
-                />
-                <span>&#128276; Chime and read aloud</span>
-              </label>
-              <button
-                type="button"
-                phx-click={JS.dispatch("taskmaster:test-alert", to: "#app-root")}
-                class="btn btn-lg btn-outline text-lg"
-              >
-                Test
-              </button>
-            </div>
-
-            <div class="flex gap-3 mt-4">
-              <button type="submit" class="btn btn-lg btn-primary flex-1 text-xl">Add</button>
-              <button
-                type="button"
-                phx-click="close_form"
-                phx-target={@myself}
-                class="btn btn-lg btn-ghost flex-1 text-xl"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
     </div>
     """
-  end
-
-  @impl true
-  def handle_event("add_event_for_date", %{"date" => date}, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_add_form, true)
-     |> assign(:add_form_date, date)
-     |> assign(:form, blank_form())}
-  end
-
-  # Form-level, so a change to any one field carries the rest with it and the
-  # server always holds what is on screen.
-  def handle_event("form_changed", params, socket) do
-    {:noreply, assign(socket, :form, Map.merge(socket.assigns.form, form_fields(params)))}
-  end
-
-  def handle_event("close_form", _params, socket) do
-    {:noreply, assign(socket, :show_add_form, false)}
-  end
-
-  def handle_event("add_event", params, socket) do
-    send(self(), {:add_event_from_form, params})
-
-    {:noreply, assign(socket, :show_add_form, false)}
-  end
-
-  # Ignore anything not part of the form, and drop absent keys so a hidden
-  # interval field does not wipe the value it had.
-  defp form_fields(params) do
-    params
-    |> Map.take(Map.keys(blank_form()))
-    |> Map.reject(fn {_key, value} -> is_nil(value) end)
   end
 end

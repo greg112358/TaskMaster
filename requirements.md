@@ -21,5 +21,8 @@ Should be able to add chores via voice interface:
 Should be a month/week view, should be toggleable
 "Add event Cat's Birthday every year"
 events/tasks should be able to be reoccuring (every day, every saturday, once a month, once every x days,weeks,months), annually)
+events/tasks should be able to have a time of day ("Add event Dentist at 3pm"), or no time at all, which means all day
+all times anywhere in the app are pacific
+events/tasks should be editable after they are added - tap one on the calendar, or Edit on the chore list - including switching an event into a chore and back
 ## chore list
 list of currently scheduled chores (chore description, date it's scheduled, date it was last done, person it's assigned to)

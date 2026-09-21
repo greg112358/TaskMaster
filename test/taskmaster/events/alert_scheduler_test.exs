@@ -1,6 +1,7 @@
 defmodule Taskmaster.Events.AlertSchedulerTest do
   use Taskmaster.DataCase
 
+  alias Taskmaster.Clock
   alias Taskmaster.Events
   alias Taskmaster.Events.AlertScheduler
   alias Taskmaster.Events.Alerts
@@ -12,7 +13,7 @@ defmodule Taskmaster.Events.AlertSchedulerTest do
         Enum.into(attrs, %{
           title: "take out the bins",
           type: "task",
-          start_date: Date.utc_today(),
+          start_date: Clock.today(),
           alert: true
         })
       )
@@ -69,7 +70,7 @@ defmodule Taskmaster.Events.AlertSchedulerTest do
   test "saving an event that is not due stays quiet" do
     scheduler = start_scheduler(watch_events: true)
 
-    due_task(start_date: Date.add(Date.utc_today(), 3))
+    due_task(start_date: Date.add(Clock.today(), 3))
     sync(scheduler)
 
     refute_received {:alert, _}

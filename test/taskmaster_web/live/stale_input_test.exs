@@ -10,6 +10,7 @@ defmodule TaskmasterWeb.StaleInputTest do
 
   import Phoenix.LiveViewTest
 
+  alias Taskmaster.Clock
   alias Taskmaster.Events
   alias Taskmaster.Grocery
 
@@ -54,7 +55,7 @@ defmodule TaskmasterWeb.StaleInputTest do
     test "survives an unparseable start date", %{conn: conn} do
       view = board(conn)
 
-      render_click(view, "add_event", %{"title" => "Dentist", "start_date" => "soon"})
+      render_click(view, "save_event", %{"title" => "Dentist", "start_date" => "soon"})
 
       assert render(view) =~ "Invalid field: start_date=&quot;soon&quot; (not a date)"
       assert Events.list_events() == []
@@ -65,10 +66,10 @@ defmodule TaskmasterWeb.StaleInputTest do
     test "says so instead of closing on nothing", %{conn: conn} do
       view = board(conn)
 
-      render_click(view, "add_event", %{
+      render_click(view, "save_event", %{
         "title" => "Bins out",
         "type" => "task",
-        "start_date" => Date.to_iso8601(Date.utc_today()),
+        "start_date" => Date.to_iso8601(Clock.today()),
         "recurrence_type" => "every_n_days",
         "recurrence_interval" => "0"
       })

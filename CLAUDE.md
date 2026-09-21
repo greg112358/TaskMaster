@@ -34,11 +34,15 @@ In the default desktop mode the HTTP port is `0` (random) — to reach it from a
 
 ### One LiveView, presentational components
 
-The router has exactly one route: `live "/", AppLive`. `TaskmasterWeb.AppLive` owns **all** application state and **all** `handle_event` clauses.
+The wall board is one route: `live "/", AppLive`. `TaskmasterWeb.AppLive` owns **all** application state and **all** `handle_event` clauses for it.
+
+(`/wkuk` is a second front end on the same release — a sketch ranking board for a phone or a desktop, not for the appliance. It has its own LiveViews, its own sizing rules and its own tables, and shares only the login. **`docs/wkuk.md`**.)
 
 `ChoreListLive` and `SettingsLive` are live_components with no `handle_event` at all — their buttons omit `phx-target`, so clicks bubble straight to `AppLive`. Follow that pattern; don't add local state to them.
 
-`CalendarLive` and `GroceryLive` are the deliberate exceptions, because view mode, the displayed month, the typed query, the suggestion list and the modals are state nobody outside those screens needs. They use `phx-target={@myself}` for that, but hand actual writes back to the parent with `send(self(), ...)`. Parent→child messages go the other way via `send_update(CalendarLive, id: "calendar", action: :prev)`.
+`GroceryLive` is the deliberate exception, because the typed query, the suggestion list and its modals are state nobody outside that screen needs. It uses `phx-target={@myself}` for that, but hands actual writes back to the parent with `send(self(), ...)`.
+
+`CalendarLive` holds the two assigns in the same spirit — which view, and which month — but has no `handle_event` either: they arrive as `send_update(CalendarLive, id: "calendar", action: :prev)` from `AppLive`, which handles the header buttons. The Add / Edit Event modal is **`AppLive`'s**, not the calendar's, because the chore list opens the same form; see `TaskmasterWeb.EventForm` and **`docs/events.md`**. Taps inside the calendar (`open_event_form` on a day, `edit_event` on an event) bubble straight up. They nest, which is fine: LiveView dispatches a click to the *closest* element carrying a binding, so a tap on an event does not also open the add form behind it.
 
 ### Contexts broadcast; AppLive reloads
 
@@ -48,6 +52,15 @@ Writes taking an id (`toggle_item/1`, `delete_item/1`, `mark_done/1`, `delete_ev
 
 So: **write through the context and let the broadcast update the UI.** Don't `assign/3` changed records directly — you'll desync any other subscriber (including the alert scheduler).
 
+### Events and chores are one table
+
+An event and a chore differ by the `type` column and nothing else, which is why
+the form can switch one into the other with nothing to migrate. Both live in
+`events`, both can carry a time (`start_time`, null for all day), a person, a
+recurrence rule and an alert. The Add / Edit modal is one form for both, owned
+by `AppLive`. Reference doc: **`docs/events.md`** — read it before touching
+`Taskmaster.Events`, `Taskmaster.Clock` or `TaskmasterWeb.EventForm`.
+
 ### Recurrence is computed, never materialized
 
 An event is one row holding a rule (`recurrence_type` + `recurrence_interval` + optional `recurrence_day_of_week`). `Taskmaster.Events.Recurrence.occurrences_in_range/3` streams dates forward from `start_date`; there is never a row per occurrence. "Does this event fall on this day?" is always `occurrences_in_range(event, date, date) != []`.
@@ -56,7 +69,27 @@ Two things to know: it iterates from `start_date` each call, so a long-running d
 
 The streams terminate **only while `next_date/2` strictly advances**, so `Event.changeset/2` validates `recurrence_type` against `Event.recurrence_types/0` and requires a positive `recurrence_interval` for the `every_n_*` rules; the `every_n_*` heads carry `n > 0` guards as well. An interval of zero once meant an endless stream on every render — a board that could not be recovered from its own screen. Any new rule has to advance.
 
-Everything is **dates, no times, no timezones** — `Date.utc_today()` throughout.
+Recurrence is **dates only**. An event's `start_time` rides along on the row and never enters the stream.
+
+### Everything is Pacific, and `Taskmaster.Clock` is the only clock
+
+The board is one appliance on one wall, so it has one time zone:
+`America/Los_Angeles`, from the `tz` package compiled in at build time
+(Elixir's own database is UTC-only and would raise on the name).
+
+**Nothing in `lib/` may call `Date.utc_today/0` or `Time.utc_now/0`** — use
+`Clock.today/0`, `Clock.time/0`, `Clock.today_and_time/0`.
+`test/taskmaster/clock_test.exs` greps for the banned two and fails. Pacific is
+7–8 hours behind UTC, so from late afternoon until midnight UTC is already on
+tomorrow: a board reading UTC moves the "today" highlight, fires tomorrow's
+alerts and dates a spoken "add task" a day early, every evening.
+
+What a person types stays a wall clock: `start_date` and `start_time` are
+Pacific and carry no offset, because a rule ("every 2 weeks at 9:00") has no
+instant to attach one to. What the machine writes — `last_completed_at`, the
+`timestamps()` pair — stays **UTC** and is converted on the way out by
+`Clock.format_datetime/1`, never on the way in. Full detail, including the
+formatting helpers and which column is in which zone, in **`docs/events.md`**.
 
 ### Audio and mic are behind one flag, and it is off
 
@@ -135,7 +168,15 @@ channel** rather than adding another assign.
 
 ### Alerts
 
-The chime-and-read-aloud checkbox has its own reference doc: **`docs/alerts.md`** — read it before touching `Taskmaster.Events.Alerts`, `AlertScheduler`, or `assets/js/chime.js`.
+The chime-and-read-aloud checkbox has its own reference doc: **`docs/alerts.md`** — read it before touching `Taskmaster.Events.Alerts`, `AlertScheduler`, or `assets/js/chime.js`. An event carrying a `start_time` announces at that time; an all-day one on the first poll of its day, both on the Pacific clock.
+
+### The sketch ranking board
+
+`/wkuk` ranks all 384 Whitest Kids U' Know sketches into S–F tiers, one board per
+person, by dragging rows and tier bars. A sketch's tier is never stored — it is
+read off the nearest bar above it, which is what makes the bars worth dragging.
+Reference doc: **`docs/wkuk.md`**. Read it before touching `Taskmaster.Wkuk`,
+`TaskmasterWeb.WkukBoardLive`, or `assets/js/hooks/wkuk_drag.js`.
 
 ## Test environment
 
@@ -188,4 +229,4 @@ or reviewing a diff, and append to `findings.md` when you find or fix one.
 
 ## Stack notes
 
-Phoenix 1.8 + LiveView 1.1, Ecto with SQLite (`ecto_sqlite3`), Bandit, Tailwind 4 + daisyUI 5 (vendored under `assets/vendor/`), `desktop ~> 1.5`. Sessions are stored in an ETS table created in `Application.start/2`, not a cookie store.
+Phoenix 1.8 + LiveView 1.1, Ecto with SQLite (`ecto_sqlite3`), Bandit, Tailwind 4 + daisyUI 5 (vendored under `assets/vendor/`), `desktop ~> 1.5`, `tz` for the IANA time zone rules (see `Taskmaster.Clock`). Sessions are stored in an ETS table created in `Application.start/2`, not a cookie store.

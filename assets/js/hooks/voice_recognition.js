@@ -32,10 +32,11 @@ const VoiceRecognition = {
       this.announce(text);
     });
 
-    // "Test" button on the Add Event / Task form, dispatched by JS.dispatch so
-    // it costs no server round trip.
+    // "Test" button on the Add / Edit Event form, dispatched by JS.dispatch so
+    // it costs no server round trip. The id is the form's, in
+    // lib/taskmaster_web/live/event_form.ex.
     this.el.addEventListener("taskmaster:test-alert", () => {
-      const input = this.el.querySelector("#add-event-form input[name='title']");
+      const input = this.el.querySelector("#event-form input[name='title']");
       const title = input ? input.value.trim() : "";
       this.announce(title ? `Alert test. ${title}` : "Alert test");
     });

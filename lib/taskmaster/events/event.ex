@@ -11,6 +11,8 @@ defmodule Taskmaster.Events.Event do
     field :title, :string
     field :type, :string, default: "task"
     field :start_date, :date
+    # Pacific wall-clock time, or nil for an all-day row. See `Taskmaster.Clock`.
+    field :start_time, :time
     field :recurrence_type, :string
     field :recurrence_interval, :integer, default: 1
     field :recurrence_day_of_week, :integer
@@ -27,6 +29,7 @@ defmodule Taskmaster.Events.Event do
       :title,
       :type,
       :start_date,
+      :start_time,
       :recurrence_type,
       :recurrence_interval,
       :recurrence_day_of_week,
@@ -36,10 +39,21 @@ defmodule Taskmaster.Events.Event do
       :person_id
     ])
     |> validate_required([:title, :type, :start_date])
+    |> truncate_start_time()
     |> validate_inclusion(:type, ["task", "event"])
     |> validate_inclusion(:recurrence_type, @recurrence_types)
     |> validate_interval()
     |> foreign_key_constraint(:person_id)
+  end
+
+  # SQLite stores a time as text, so a `%Time{}` carrying microseconds would be
+  # written as "09:00:00.000000" and sort against "09:00:00" as a string. The
+  # board has no use for anything finer than a minute anyway.
+  defp truncate_start_time(changeset) do
+    case get_change(changeset, :start_time) do
+      %Time{} = time -> put_change(changeset, :start_time, Time.truncate(time, :second))
+      _ -> changeset
+    end
   end
 
   @doc "The recurrence rules that can be stored, for anything offering a choice."

@@ -11,6 +11,20 @@ config :taskmaster,
   ecto_repos: [Taskmaster.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+# Every date and time this board shows or stores is Pacific — see
+# `Taskmaster.Clock`. Elixir ships a UTC-only time zone database, so the real
+# IANA rules (and the DST switchovers) come from `tz`, compiled in rather than
+# fetched: the board must boot correctly with no network.
+config :elixir, :time_zone_database, Tz.TimeZoneDatabase
+
+# Periods before 2020 are of no use here — nothing older than the install is
+# ever rendered — and DST periods are compiled 20 years out rather than the
+# default 5, because a release can sit on the shelf unrebuilt for years and a
+# lookup past the compiled range is computed the slow way.
+config :tz,
+  reject_periods_before_year: 2020,
+  build_dst_periods_until_year: 20 + NaiveDateTime.utc_now().year
+
 # The microphone and speaker half of the board — speech recognition, speech
 # synthesis, the alert chime and the scheduler behind it — behind one flag, off
 # by default. See `Taskmaster.Audio`; TASKMASTER_AUDIO=1 turns it on.

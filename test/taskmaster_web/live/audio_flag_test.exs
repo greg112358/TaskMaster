@@ -11,6 +11,7 @@ defmodule TaskmasterWeb.AudioFlagTest do
   import Phoenix.LiveViewTest
 
   alias Taskmaster.Audio
+  alias Taskmaster.Clock
   alias Taskmaster.Events
 
   defp set_audio(value) do
@@ -26,7 +27,7 @@ defmodule TaskmasterWeb.AudioFlagTest do
 
   defp open_add_form(view) do
     view
-    |> element("div[phx-value-date='#{Date.to_iso8601(Date.utc_today())}']")
+    |> element("div[phx-value-date='#{Date.to_iso8601(Clock.today())}']")
     |> render_click()
 
     view
@@ -82,7 +83,7 @@ defmodule TaskmasterWeb.AudioFlagTest do
         Events.create_event(%{
           title: "bin day",
           type: "task",
-          start_date: Date.utc_today(),
+          start_date: Clock.today(),
           recurrence_type: "weekly",
           alert: true
         })

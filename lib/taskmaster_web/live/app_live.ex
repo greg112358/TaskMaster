@@ -1,11 +1,12 @@
 defmodule TaskmasterWeb.AppLive do
   use TaskmasterWeb, :live_view
 
-  alias Taskmaster.{Audio, People, Grocery, Events}
+  alias Taskmaster.{Audio, Clock, People, Grocery, Events}
   alias Taskmaster.Events.Alerts
+  alias Taskmaster.Events.Event
+  alias TaskmasterWeb.EventForm
   alias Taskmaster.Grocery.Dictionary
   alias Taskmaster.Voice.Parser
-  alias TaskmasterWeb.CoreComponents
 
   @impl true
   def mount(_params, session, socket) do
@@ -49,6 +50,11 @@ defmodule TaskmasterWeb.AppLive do
     # The half-typed name in Settings. Held here rather than in the DOM, where
     # the next patch would wipe it.
     |> assign(:new_person_name, "")
+    # The Add / Edit Event modal: every field of it, and the id being edited
+    # (nil for a new row). It lives here rather than in `CalendarLive` because
+    # the chore list opens the same form. See `TaskmasterWeb.EventForm`.
+    |> assign(:event_form, nil)
+    |> assign(:event_form_id, nil)
     |> load_data()
   end
 
@@ -209,25 +215,63 @@ defmodule TaskmasterWeb.AppLive do
     {:noreply, socket}
   end
 
-  # Event/Task creation
-  def handle_event("add_event", params, socket) do
+  # The Add / Edit Event modal. Opened from a day on the calendar (new row) or
+  # from an event on the calendar / a row in the chore list (existing one).
+  def handle_event("open_event_form", %{"date" => date}, socket) do
+    {:noreply, open_event_form(socket, nil, blank_event_form(date))}
+  end
+
+  def handle_event("edit_event", %{"id" => id}, socket) do
+    case with_id(id, &Events.get_event/1) do
+      %Event{} = event ->
+        {:noreply, open_event_form(socket, event.id, event_form_fields(event))}
+
+      # A stale id: deleted on the other tablet between the render and the tap.
+      # Its removal has already been broadcast, so the row is about to go.
+      _gone ->
+        {:noreply, socket}
+    end
+  end
+
+  # Form-level, so a change to any one field carries the rest with it and the
+  # server always holds what is on screen. Without it a re-render — showing the
+  # interval field, say — patches over inputs it never knew the value of.
+  def handle_event("event_form_changed", params, socket) do
+    {:noreply, assign(socket, :event_form, merge_event_form(socket.assigns.event_form, params))}
+  end
+
+  def handle_event("close_event_form", _params, socket) do
+    {:noreply, close_event_form(socket)}
+  end
+
+  # One submit for both: `@event_form_id` decides whether this creates a row or
+  # edits one. It is read from the socket rather than from the form, so a
+  # tampered-with hidden field cannot redirect the write.
+  def handle_event("save_event", params, socket) do
     case Date.from_iso8601(to_string(params["start_date"])) do
       {:ok, start_date} ->
-        attrs = %{
-          title: params["title"],
-          type: params["type"] || "event",
-          start_date: start_date,
-          person_id: parse_int(params["person_id"]),
-          recurrence_type: blank_to_nil(params["recurrence_type"]),
-          recurrence_interval: parse_int(params["recurrence_interval"]),
-          recurrence_day_of_week: parse_int(params["recurrence_day_of_week"]),
-          alert: params["alert"] == "true"
-        }
+        attrs = event_attrs(params, start_date, socket.assigns.audio)
 
-        case Events.create_event(attrs) do
+        write =
+          case socket.assigns.event_form_id do
+            nil -> Events.create_event(attrs)
+            id -> Events.update_event(id, attrs)
+          end
+
+        case write do
           {:ok, _event} ->
-            {:noreply, socket}
+            {:noreply, close_event_form(socket)}
 
+          # The row being edited has gone. Nothing to write to, and the form is
+          # describing something that no longer exists, so it closes.
+          :error ->
+            {:noreply,
+             socket
+             |> close_event_form()
+             |> assign(:last_voice_message, "Unknown event: #{socket.assigns.event_form_id}")}
+
+          # The form stays open holding what was typed, so it can be corrected
+          # rather than retyped.
           {:error, changeset} ->
             {:noreply, assign(socket, :last_voice_message, error_message(changeset))}
         end
@@ -247,9 +291,11 @@ defmodule TaskmasterWeb.AppLive do
     {:noreply, socket}
   end
 
+  # Also reached from the Delete button inside the modal, which is why the form
+  # closes: it would otherwise stay open on a row that no longer exists.
   def handle_event("delete_event", %{"id" => id}, socket) do
     with_id(id, &Events.delete_event/1)
-    {:noreply, socket}
+    {:noreply, close_event_form(socket)}
   end
 
   # Calendar navigation
@@ -286,10 +332,6 @@ defmodule TaskmasterWeb.AppLive do
     end
 
     {:noreply, socket}
-  end
-
-  def handle_info({:add_event_from_form, params}, socket) do
-    handle_event("add_event", params, socket)
   end
 
   # Grocery writes handed up from GroceryLive.
@@ -331,6 +373,85 @@ defmodule TaskmasterWeb.AppLive do
      |> push_event("alert", payload)}
   end
 
+  defp open_event_form(socket, id, fields) do
+    socket
+    |> assign(:event_form_id, id)
+    |> assign(:event_form, fields)
+  end
+
+  defp close_event_form(socket) do
+    socket
+    |> assign(:event_form_id, nil)
+    |> assign(:event_form, nil)
+  end
+
+  # Every control in the modal renders its value from this map — see
+  # `TaskmasterWeb.EventForm` for why — so a new field needs a key here, in
+  # `event_form_fields/1`, and in `event_attrs/3`.
+  defp blank_event_form(date) do
+    %{
+      "id" => "",
+      "title" => "",
+      "type" => "event",
+      "start_date" => date,
+      "start_time" => "",
+      "person_id" => "",
+      "recurrence_type" => "",
+      "recurrence_interval" => "1",
+      "alert" => "false"
+    }
+  end
+
+  # An existing row as form fields. All strings: they are going into `value=`
+  # and `selected=` attributes and come back as strings.
+  defp event_form_fields(%Event{} = event) do
+    %{
+      "id" => to_string(event.id),
+      "title" => event.title,
+      "type" => event.type,
+      "start_date" => Date.to_iso8601(event.start_date),
+      "start_time" => time_field(event.start_time),
+      "person_id" => to_string(event.person_id),
+      "recurrence_type" => event.recurrence_type || "",
+      "recurrence_interval" => to_string(event.recurrence_interval || 1),
+      "alert" => to_string(event.alert)
+    }
+  end
+
+  # `<input type="time">` takes and gives 24-hour HH:MM, whatever the browser
+  # shows the reader. The Pacific clock everything else runs on
+  # (`Taskmaster.Clock`) is not involved: this is a wall-clock time, not an
+  # instant.
+  defp time_field(nil), do: ""
+  defp time_field(%Time{} = time), do: Calendar.strftime(time, "%H:%M")
+
+  # Ignore anything not part of the form, and drop absent keys so a hidden
+  # interval field — or an unrendered alert checkbox — does not wipe the value
+  # it had.
+  defp merge_event_form(form, params) do
+    Map.merge(form, Map.reject(Map.take(params, Map.keys(form)), fn {_k, v} -> is_nil(v) end))
+  end
+
+  defp event_attrs(params, start_date, audio?) do
+    attrs = %{
+      title: params["title"],
+      type: params["type"] || "event",
+      start_date: start_date,
+      # Left as the string the browser sent; `Event.changeset/2` casts it, so
+      # "half past" is a rejected write rather than a raise.
+      start_time: blank_to_nil(params["start_time"]),
+      person_id: parse_int(params["person_id"]),
+      recurrence_type: blank_to_nil(params["recurrence_type"]),
+      recurrence_interval: parse_int(params["recurrence_interval"]),
+      recurrence_day_of_week: parse_int(params["recurrence_day_of_week"])
+    }
+
+    # With audio off the checkbox is not rendered, so the key is absent and
+    # reading it as false would disarm an alerting row the moment anybody
+    # edited it on a silent board. A new row takes the column default instead.
+    if audio?, do: Map.put(attrs, :alert, params["alert"] == "true"), else: attrs
+  end
+
   # Speech out. With audio off there is no VoiceRecognition hook on the page to
   # receive this, so it is not pushed; the same text is already in the status
   # bar either way.
@@ -354,7 +475,8 @@ defmodule TaskmasterWeb.AppLive do
       attrs = %{
         title: details.title,
         type: "task",
-        start_date: Date.utc_today(),
+        start_date: Clock.today(),
+        start_time: details[:start_time],
         person_id: person && person.id,
         recurrence_type: details.recurrence_type,
         recurrence_interval: details.recurrence_interval,
@@ -363,12 +485,12 @@ defmodule TaskmasterWeb.AppLive do
 
       case Events.create_event(attrs) do
         {:ok, event} ->
-          msg =
-            if person,
-              do: "Added task: #{event.title} (#{person.name})",
-              else: "Added task: #{event.title}"
-
-          {:noreply, assign(socket, :last_voice_message, msg)}
+          {:noreply,
+           assign(
+             socket,
+             :last_voice_message,
+             "Added task: #{event.title}#{qualifiers([person && person.name, Clock.format_time(event.start_time)])}"
+           )}
 
         {:error, changeset} ->
           {:noreply, assign(socket, :last_voice_message, error_message(changeset))}
@@ -380,7 +502,8 @@ defmodule TaskmasterWeb.AppLive do
     attrs = %{
       title: details.title,
       type: "event",
-      start_date: Date.utc_today(),
+      start_date: Clock.today(),
+      start_time: details[:start_time],
       recurrence_type: details[:recurrence_type],
       recurrence_interval: details[:recurrence_interval],
       recurrence_day_of_week: details[:recurrence_day_of_week]
@@ -388,10 +511,24 @@ defmodule TaskmasterWeb.AppLive do
 
     case Events.create_event(attrs) do
       {:ok, event} ->
-        {:noreply, assign(socket, :last_voice_message, "Added event: #{event.title}")}
+        {:noreply,
+         assign(
+           socket,
+           :last_voice_message,
+           "Added event: #{event.title}#{qualifiers([Clock.format_time(event.start_time)])}"
+         )}
 
       {:error, changeset} ->
         {:noreply, assign(socket, :last_voice_message, error_message(changeset))}
+    end
+  end
+
+  # What was understood beyond the title, appended to a status line as
+  # `(Greg, 3:00 PM)`. Nothing at all when nothing was: `Added task: vacuum`.
+  defp qualifiers(values) do
+    case Enum.reject(values, &is_nil/1) do
+      [] -> ""
+      present -> " (" <> Enum.join(present, ", ") <> ")"
     end
   end
 
@@ -425,31 +562,12 @@ defmodule TaskmasterWeb.AppLive do
   # indistinguishable from one that worked and changed nothing — and "couldn't
   # save that" is no more useful than silence. Format is fixed by the `deslop`
   # skill.
-  defp error_message(%Ecto.Changeset{errors: [{field, error} | _]} = changeset) do
-    case CoreComponents.translate_error(error) do
-      "can't be blank" ->
-        "Missing field: #{field}"
-
-      constraint ->
-        "Invalid field: #{field}=#{inspect(rejected_value(changeset, field))} (#{constraint})"
-    end
-  end
-
-  defp error_message(%Ecto.Changeset{}), do: "Write rejected"
-
-  # What was typed, not what it cast to — a value that failed to cast has no
-  # entry in `changes` at all.
-  defp rejected_value(changeset, field) do
-    case Map.fetch(changeset.params || %{}, to_string(field)) do
-      {:ok, value} -> value
-      :error -> Ecto.Changeset.get_field(changeset, field)
-    end
-  end
+  defdelegate error_message(changeset), to: TaskmasterWeb.ErrorMessage, as: :build
 
   defp voice_hints(:calendar) do
     [
       ~s(\"add task for Greg clean cat tree every 2 weeks\"),
-      ~s(\"add event Birthday every year\"),
+      ~s(\"add event Dentist at 3pm\"),
       ~s(\"show groceries\")
     ]
   end
@@ -527,7 +645,6 @@ defmodule TaskmasterWeb.AppLive do
             module={TaskmasterWeb.CalendarLive}
             id="calendar"
             events={@events}
-            people={@people}
             audio={@audio}
           />
         </div>
@@ -555,6 +672,16 @@ defmodule TaskmasterWeb.AppLive do
           />
         </div>
       </main>
+
+      <%!-- Add / Edit Event. One modal for both, over whichever screen opened
+            it — the calendar and the chore list both do. --%>
+      <EventForm.event_form
+        :if={@event_form}
+        form={@event_form}
+        editing={@event_form_id != nil}
+        people={@people}
+        audio={@audio}
+      />
 
       <%!-- Bottom navigation --%>
       <nav class="flex border-t-2 border-base-300 bg-base-100">

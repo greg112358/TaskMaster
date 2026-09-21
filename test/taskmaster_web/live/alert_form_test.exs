@@ -3,6 +3,7 @@ defmodule TaskmasterWeb.AlertFormTest do
 
   import Phoenix.LiveViewTest
 
+  alias Taskmaster.Clock
   alias Taskmaster.Events
   alias Taskmaster.Events.Alerts
 
@@ -16,7 +17,7 @@ defmodule TaskmasterWeb.AlertFormTest do
 
   defp submit_add_form(view, values) do
     view
-    |> form("#add-event-form", values)
+    |> form("#event-form", values)
     |> render_submit()
 
     # The component hands the params to the parent LiveView as a message;
@@ -30,7 +31,7 @@ defmodule TaskmasterWeb.AlertFormTest do
       {:ok, view, _html} = live(conn, "/")
       view = isolate_view(view)
 
-      html = view |> open_add_form(Date.utc_today()) |> render()
+      html = view |> open_add_form(Clock.today()) |> render()
 
       assert html =~ "Chime and read aloud"
       assert html =~ ~s(name="alert")
@@ -41,7 +42,7 @@ defmodule TaskmasterWeb.AlertFormTest do
       view = isolate_view(view)
 
       view
-      |> open_add_form(Date.utc_today())
+      |> open_add_form(Clock.today())
       |> submit_add_form(%{"title" => "water the plants", "type" => "task", "alert" => "true"})
 
       assert [event] = Events.list_events()
@@ -54,7 +55,7 @@ defmodule TaskmasterWeb.AlertFormTest do
       view = isolate_view(view)
 
       view
-      |> open_add_form(Date.utc_today())
+      |> open_add_form(Clock.today())
       |> submit_add_form(%{"title" => "water the plants", "type" => "task"})
 
       assert [event] = Events.list_events()
@@ -65,7 +66,7 @@ defmodule TaskmasterWeb.AlertFormTest do
   describe "the frequency field" do
     defp choose_frequency(view, type) do
       view
-      |> form("#add-event-form", %{"recurrence_type" => type})
+      |> form("#event-form", %{"recurrence_type" => type})
       |> render_change()
     end
 
@@ -73,7 +74,7 @@ defmodule TaskmasterWeb.AlertFormTest do
       {:ok, view, _html} = live(conn, "/")
       view = isolate_view(view)
 
-      html = view |> open_add_form(Date.utc_today()) |> render()
+      html = view |> open_add_form(Clock.today()) |> render()
 
       assert html =~ "Frequency"
       refute html =~ "Repeats"
@@ -83,7 +84,7 @@ defmodule TaskmasterWeb.AlertFormTest do
       {:ok, view, _html} = live(conn, "/")
       view = isolate_view(view)
 
-      html = view |> open_add_form(Date.utc_today()) |> render()
+      html = view |> open_add_form(Clock.today()) |> render()
 
       refute html =~ ~s(name="recurrence_interval")
     end
@@ -91,7 +92,7 @@ defmodule TaskmasterWeb.AlertFormTest do
     test "keeps the interval field hidden for fixed frequencies", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
       view = isolate_view(view)
-      open_add_form(view, Date.utc_today())
+      open_add_form(view, Clock.today())
 
       for fixed <- ["", "daily", "weekly", "monthly", "yearly"] do
         refute choose_frequency(view, fixed) =~ ~s(name="recurrence_interval")
@@ -101,7 +102,7 @@ defmodule TaskmasterWeb.AlertFormTest do
     test "shows the interval field, in the right unit, for every-N frequencies", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
       view = isolate_view(view)
-      open_add_form(view, Date.utc_today())
+      open_add_form(view, Clock.today())
 
       for {type, unit} <- [
             {"every_n_days", "Days"},
@@ -119,7 +120,7 @@ defmodule TaskmasterWeb.AlertFormTest do
     test "hides the interval again when the frequency stops needing one", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
       view = isolate_view(view)
-      open_add_form(view, Date.utc_today())
+      open_add_form(view, Clock.today())
 
       assert choose_frequency(view, "every_n_weeks") =~ ~s(name="recurrence_interval")
       refute choose_frequency(view, "daily") =~ ~s(name="recurrence_interval")
@@ -128,7 +129,7 @@ defmodule TaskmasterWeb.AlertFormTest do
     test "saves the interval that was entered", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
       view = isolate_view(view)
-      open_add_form(view, Date.utc_today())
+      open_add_form(view, Clock.today())
       choose_frequency(view, "every_n_weeks")
 
       submit_add_form(view, %{
@@ -146,11 +147,11 @@ defmodule TaskmasterWeb.AlertFormTest do
     test "reopening the form starts back at no frequency", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
       view = isolate_view(view)
-      open_add_form(view, Date.utc_today())
+      open_add_form(view, Clock.today())
       assert choose_frequency(view, "every_n_days") =~ ~s(name="recurrence_interval")
 
       view |> element("button", "Cancel") |> render_click()
-      html = view |> open_add_form(Date.utc_today()) |> render()
+      html = view |> open_add_form(Clock.today()) |> render()
 
       refute html =~ ~s(name="recurrence_interval")
     end
@@ -160,10 +161,10 @@ defmodule TaskmasterWeb.AlertFormTest do
     test "survive changing the frequency", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
       view = isolate_view(view)
-      open_add_form(view, Date.utc_today())
+      open_add_form(view, Clock.today())
 
       view
-      |> form("#add-event-form", %{
+      |> form("#event-form", %{
         "title" => "clean cat tree",
         "type" => "task",
         "alert" => "true"
@@ -180,9 +181,9 @@ defmodule TaskmasterWeb.AlertFormTest do
     test "survive a frequency that hides the interval field again", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
       view = isolate_view(view)
-      open_add_form(view, Date.utc_today())
+      open_add_form(view, Clock.today())
 
-      view |> form("#add-event-form", %{"title" => "bin day"}) |> render_change()
+      view |> form("#event-form", %{"title" => "bin day"}) |> render_change()
       choose_frequency(view, "every_n_days")
 
       assert choose_frequency(view, "weekly") =~ ~s(value="bin day")
@@ -191,11 +192,11 @@ defmodule TaskmasterWeb.AlertFormTest do
     test "are cleared when the form is reopened", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
       view = isolate_view(view)
-      open_add_form(view, Date.utc_today())
-      view |> form("#add-event-form", %{"title" => "bin day"}) |> render_change()
+      open_add_form(view, Clock.today())
+      view |> form("#event-form", %{"title" => "bin day"}) |> render_change()
 
       view |> element("button", "Cancel") |> render_click()
-      html = view |> open_add_form(Date.utc_today()) |> render()
+      html = view |> open_add_form(Clock.today()) |> render()
 
       refute html =~ ~s(value="bin day")
     end
@@ -271,7 +272,7 @@ defmodule TaskmasterWeb.AlertFormTest do
         Events.create_event(%{
           title: "bin day",
           type: "task",
-          start_date: Date.utc_today(),
+          start_date: Clock.today(),
           alert: true
         })
 
@@ -286,7 +287,7 @@ defmodule TaskmasterWeb.AlertFormTest do
         Events.create_event(%{
           title: "bin day",
           type: "task",
-          start_date: Date.utc_today(),
+          start_date: Clock.today(),
           alert: false
         })
 

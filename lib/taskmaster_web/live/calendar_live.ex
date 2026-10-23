@@ -2,10 +2,10 @@ defmodule TaskmasterWeb.CalendarLive do
   @moduledoc """
   The month/week grid.
 
-  It holds the two pieces of state nobody outside this screen needs — which
-  view, and which month or week is showing — and nothing else. Both arrive as
-  `send_update` actions from `TaskmasterWeb.AppLive`, which handles the header
-  buttons.
+  It holds the pieces of state nobody outside this screen needs — which view,
+  which month or week is showing, and whether chores are hidden — and nothing
+  else. All of it arrives as `send_update` actions from `TaskmasterWeb.AppLive`,
+  which handles the header buttons.
 
   Taps that write go straight to `AppLive` (no `phx-target`), so this component
   has no `handle_event` at all:
@@ -32,7 +32,8 @@ defmodule TaskmasterWeb.CalendarLive do
      socket
      |> assign(:today, today)
      |> assign(:current_date, today)
-     |> assign(:view_mode, :month)}
+     |> assign(:view_mode, :month)
+     |> assign(:hide_chores, false)}
   end
 
   @impl true
@@ -66,6 +67,17 @@ defmodule TaskmasterWeb.CalendarLive do
   # fires. Driven by a timer in `AppLive` — see `schedule_today_check/0`.
   def update(%{action: :refresh_today} = _assigns, socket) do
     {:ok, assign(socket, :today, Clock.today())}
+  end
+
+  def update(%{action: :toggle_hide_chores} = _assigns, socket) do
+    {:ok, assign(socket, :hide_chores, !socket.assigns.hide_chores)}
+  end
+
+  # The one-time sync on connect from whatever the browser had in
+  # localStorage — see `assets/js/hooks/chore_filter.js`. A plain boolean
+  # rather than a toggle so a late, out-of-order push can't flip it back.
+  def update(%{action: {:set_hide_chores, hide}}, socket) do
+    {:ok, assign(socket, :hide_chores, hide)}
   end
 
   def update(assigns, socket) do
@@ -110,9 +122,10 @@ defmodule TaskmasterWeb.CalendarLive do
   # `start_date`, which says nothing about where a recurring event falls on
   # *this* day, so the time sort happens here. `nil` is an atom and atoms
   # precede tuples in term order, so untimed rows come first for free.
-  defp events_for_date(events, date) do
+  defp events_for_date(events, date, hide_chores) do
     events
     |> Enum.filter(fn event -> Recurrence.occurrences_in_range(event, date, date) != [] end)
+    |> Enum.reject(fn event -> hide_chores && event.type == "task" end)
     |> Enum.sort_by(&(&1.start_time && Time.to_erl(&1.start_time)))
   end
 
@@ -147,10 +160,26 @@ defmodule TaskmasterWeb.CalendarLive do
         <button phx-click="calendar_next" class="btn btn-lg btn-ghost text-3xl">&rarr;</button>
       </div>
 
-      <div class="flex justify-center mb-4">
+      <div class="flex justify-center items-center gap-6 mb-4">
         <button phx-click="calendar_toggle_view" class="btn btn-lg btn-outline text-xl">
           {if @view_mode == :month, do: "Week View", else: "Month View"}
         </button>
+
+        <%!-- Client-side only: `hide_chores` lives in this component's
+              assigns and resets with the socket, so `ChoreFilter` mirrors it
+              into localStorage and restores it on connect. See
+              `assets/js/hooks/chore_filter.js`. --%>
+        <label class="label cursor-pointer gap-3 text-xl">
+          <span>Hide chores</span>
+          <input
+            id="hide-chores-toggle"
+            type="checkbox"
+            checked={@hide_chores}
+            phx-click="calendar_toggle_chores"
+            phx-hook="ChoreFilter"
+            class="toggle toggle-lg toggle-primary"
+          />
+        </label>
       </div>
 
       <%!-- Day headers --%>
@@ -175,7 +204,7 @@ defmodule TaskmasterWeb.CalendarLive do
         >
           <div class="text-lg font-semibold">{date.day}</div>
           <div
-            :for={event <- events_for_date(@events, date)}
+            :for={event <- events_for_date(@events, date, @hide_chores)}
             phx-click="edit_event"
             phx-value-id={event.id}
             class={"text-xs px-1 rounded mb-0.5 truncate
@@ -200,7 +229,7 @@ defmodule TaskmasterWeb.CalendarLive do
         >
           <div class="text-xl font-bold mb-2">{day_name(date)} {date.day}</div>
           <div
-            :for={event <- events_for_date(@events, date)}
+            :for={event <- events_for_date(@events, date, @hide_chores)}
             phx-click="edit_event"
             phx-value-id={event.id}
             class={"text-base p-2 rounded mb-1

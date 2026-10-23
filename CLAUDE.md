@@ -94,6 +94,23 @@ highlighting yesterday forever. `AppLive` runs a `Process.send_after/3` timer
 mount. A live_component has no `handle_info` of its own, which is why the
 timer lives in `AppLive` rather than in `CalendarLive` itself.
 
+`CalendarLive.hide_chores` is the same kind of per-connection state as
+`@view_mode`/`@current_date`, toggled the same way (`calendar_toggle_chores`
+bubbles to `AppLive`, which `send_update`s the component) — except it also
+needs to survive a refresh, which socket-held state does not. That half is
+`assets/js/hooks/chore_filter.js`: a hook on the toggle input mirrors it into
+`localStorage` on every change and, on connect, pushes a stored `true` up to
+`AppLive` as `restore_hide_chores` (skipped if there's nothing stored, since
+the server's own default already matches). A blocked/unavailable
+`localStorage` (private browsing, say) reports through `device_warning` like
+every other browser capability — see "Browser capabilities fail silently"
+below — rather than throwing. Note for tests: because the toggle's effect
+arrives as a `send_update` message to the view's own mailbox rather than
+inside the triggering `handle_event`, `render_click/3`'s reply can land
+*before* that message is processed — the same settling-render idiom as
+`grocery_dictionary_test.exs`'s `settle/1` is needed to see it, not a bug in
+the feature itself.
+
 What a person types stays a wall clock: `start_date` and `start_time` are
 Pacific and carry no offset, because a rule ("every 2 weeks at 9:00") has no
 instant to attach one to. What the machine writes — `last_completed_at`, the

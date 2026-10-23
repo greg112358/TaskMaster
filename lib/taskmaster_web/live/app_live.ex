@@ -330,6 +330,18 @@ defmodule TaskmasterWeb.AppLive do
     {:noreply, socket}
   end
 
+  def handle_event("calendar_toggle_chores", _params, socket) do
+    send_update(TaskmasterWeb.CalendarLive, id: "calendar", action: :toggle_hide_chores)
+    {:noreply, socket}
+  end
+
+  # The `ChoreFilter` hook's one-time sync from localStorage on connect — see
+  # `assets/js/hooks/chore_filter.js`.
+  def handle_event("restore_hide_chores", %{"hide" => hide}, socket) do
+    send_update(TaskmasterWeb.CalendarLive, id: "calendar", action: {:set_hide_chores, hide})
+    {:noreply, socket}
+  end
+
   # See `schedule_today_check/0`. Unconditional and cheap, so there is no
   # "did the date actually change" check to get wrong.
   @impl true

@@ -2,6 +2,7 @@ import "phoenix_html"
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
+import ChoreFilter from "./hooks/chore_filter"
 import GroceryDrag from "./hooks/grocery_drag"
 import LongPress from "./hooks/long_press"
 import VoiceRecognition from "./hooks/voice_recognition"
@@ -9,6 +10,7 @@ import WakeLock from "./hooks/wake_lock"
 import WkukDrag from "./hooks/wkuk_drag"
 
 const Hooks = {
+  ChoreFilter,
   GroceryDrag,
   LongPress,
   VoiceRecognition,

@@ -22,7 +22,13 @@ defmodule TaskmasterWeb.Router do
   scope "/", TaskmasterWeb do
     pipe_through :browser
 
-    live "/", AppLive
+    # One LiveView, four routes — the tab is the path (`:live_action`), not
+    # just an in-memory assign. A tab is then a URL a reload or a reopened
+    # browser lands back on, instead of always booting to the calendar.
+    live "/", AppLive, :calendar
+    live "/groceries", AppLive, :groceries
+    live "/chores", AppLive, :chores
+    live "/settings", AppLive, :settings
   end
 
   # The sketch ranking board. A second front end on the same release and the

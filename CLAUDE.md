@@ -34,7 +34,7 @@ In the default desktop mode the HTTP port is `0` (random) — to reach it from a
 
 ### One LiveView, presentational components
 
-The wall board is one route: `live "/", AppLive`. `TaskmasterWeb.AppLive` owns **all** application state and **all** `handle_event` clauses for it.
+The wall board is one LiveView, `TaskmasterWeb.AppLive`, mounted on four routes — `/`, `/groceries`, `/chores`, `/settings` — that share the module and differ only in `:live_action`. `handle_params/3` is the one place that sets `@current_view`, from `@live_action`, so it runs the same way on the first request and on every tab switch. The tab buttons (and voice's `{:navigate, view}`) call `push_patch/2` rather than assigning `@current_view` directly, which is what makes the address bar carry the open tab: a phone browser that gets backgrounded and reloads the page, or a reconnecting socket, lands back on the tab it left rather than always booting to the calendar. `TaskmasterWeb.AppLive` owns **all** application state and **all** `handle_event` clauses for it.
 
 (`/wkuk` is a second front end on the same release — a sketch ranking board for a phone or a desktop, not for the appliance. It has its own LiveViews, its own sizing rules and its own tables, and shares only the login. **`docs/wkuk.md`**.)
 
@@ -83,6 +83,16 @@ The board is one appliance on one wall, so it has one time zone:
 7–8 hours behind UTC, so from late afternoon until midnight UTC is already on
 tomorrow: a board reading UTC moves the "today" highlight, fires tomorrow's
 alerts and dates a spoken "add task" a day early, every evening.
+
+Same reasoning applies to `CalendarLive`'s `@today`, computed once in
+`mount/1` for the border around today's cell: a connection left open across
+midnight (the wall board, or a phone tab that never fully reloads) would keep
+highlighting yesterday forever. `AppLive` runs a `Process.send_after/3` timer
+(`@today_check_interval`, started only `if connected?(socket)`) that
+`send_update`s `CalendarLive` with `action: :refresh_today` once a minute;
+`CalendarLive.update/2` is the only place that re-reads `Clock.today/0` after
+mount. A live_component has no `handle_info` of its own, which is why the
+timer lives in `AppLive` rather than in `CalendarLive` itself.
 
 What a person types stays a wall clock: `start_date` and `start_time` are
 Pacific and carry no offset, because a rule ("every 2 weeks at 9:00") has no

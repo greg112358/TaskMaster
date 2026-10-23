@@ -61,6 +61,13 @@ defmodule TaskmasterWeb.CalendarLive do
     {:ok, assign(socket, :view_mode, new_mode)}
   end
 
+  # `@today` is otherwise set once in `mount/1` and never again, so a
+  # connection left open past midnight keeps highlighting yesterday until this
+  # fires. Driven by a timer in `AppLive` — see `schedule_today_check/0`.
+  def update(%{action: :refresh_today} = _assigns, socket) do
+    {:ok, assign(socket, :today, Clock.today())}
+  end
+
   def update(assigns, socket) do
     {:ok,
      socket

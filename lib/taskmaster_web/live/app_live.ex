@@ -8,6 +8,10 @@ defmodule TaskmasterWeb.AppLive do
   alias Taskmaster.Grocery.Dictionary
   alias Taskmaster.Voice.Parser
 
+  # How often the calendar's "today" border is recomputed for a connection
+  # left open across midnight — see `schedule_today_check/0`.
+  @today_check_interval :timer.minutes(1)
+
   @impl true
   def mount(_params, session, socket) do
     if authorized?(session) do
@@ -17,6 +21,14 @@ defmodule TaskmasterWeb.AppLive do
       # already been through TaskmasterWeb.Plugs.Auth.
       {:ok, redirect(socket, to: ~p"/")}
     end
+  end
+
+  # The tab is the route (`:live_action`, set by the router), so this runs on
+  # the initial mount and on every `push_patch` between tabs alike and is the
+  # one place `current_view` is set.
+  @impl true
+  def handle_params(_params, _url, socket) do
+    {:noreply, assign(socket, :current_view, socket.assigns.live_action)}
   end
 
   defp authorized?(session) do
@@ -37,6 +49,10 @@ defmodule TaskmasterWeb.AppLive do
       # could sound it if it did.
       if audio?, do: Alerts.subscribe()
       Dictionary.subscribe()
+      # The calendar's "today" border is computed once at mount; a board or a
+      # phone browser left open past midnight needs a nudge to notice, since
+      # nothing else about that render changes to trigger one.
+      schedule_today_check()
     end
 
     socket
@@ -68,7 +84,7 @@ defmodule TaskmasterWeb.AppLive do
 
   @impl true
   def handle_event("navigate", %{"view" => view}, socket) do
-    {:noreply, assign(socket, :current_view, String.to_existing_atom(view))}
+    {:noreply, push_patch(socket, to: path_for_view(String.to_existing_atom(view)))}
   end
 
   def handle_event("voice_command", %{"transcript" => transcript}, socket) do
@@ -76,7 +92,7 @@ defmodule TaskmasterWeb.AppLive do
       {:navigate, view} ->
         {:noreply,
          socket
-         |> assign(:current_view, view)
+         |> push_patch(to: path_for_view(view))
          |> assign(:last_voice_message, "View: #{view}")}
 
       {:add_grocery, item_name} ->
@@ -314,8 +330,16 @@ defmodule TaskmasterWeb.AppLive do
     {:noreply, socket}
   end
 
-  # PubSub handlers
+  # See `schedule_today_check/0`. Unconditional and cheap, so there is no
+  # "did the date actually change" check to get wrong.
   @impl true
+  def handle_info(:check_today, socket) do
+    send_update(TaskmasterWeb.CalendarLive, id: "calendar", action: :refresh_today)
+    schedule_today_check()
+    {:noreply, socket}
+  end
+
+  # PubSub handlers
   def handle_info(:people_changed, socket) do
     {:noreply, assign(socket, :people, People.list_people())}
   end
@@ -372,6 +396,13 @@ defmodule TaskmasterWeb.AppLive do
      |> assign(:last_voice_message, "\u{1F514} #{payload.text}")
      |> push_event("alert", payload)}
   end
+
+  defp schedule_today_check, do: Process.send_after(self(), :check_today, @today_check_interval)
+
+  defp path_for_view(:calendar), do: ~p"/"
+  defp path_for_view(:groceries), do: ~p"/groceries"
+  defp path_for_view(:chores), do: ~p"/chores"
+  defp path_for_view(:settings), do: ~p"/settings"
 
   defp open_event_form(socket, id, fields) do
     socket
@@ -602,7 +633,7 @@ defmodule TaskmasterWeb.AppLive do
     <div
       id="app-root"
       phx-hook={if @audio, do: "VoiceRecognition"}
-      class="flex flex-col h-screen"
+      class="flex flex-col h-dvh"
     >
       <%!-- Keeps the screen awake. Its own element because an element carries
             only one phx-hook. --%>
